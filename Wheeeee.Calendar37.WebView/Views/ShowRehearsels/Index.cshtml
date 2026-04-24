@@ -1,0 +1,31 @@
+﻿@using Wheeeee.Calendar37.BL
+@model ShowDatesViewModel
+@{
+    var datesByWeek = CalendarCalculator.GetDatesByWeek(Model.Dates);
+    var tableHtml = CalendarRenderer.RenderCalendar(Model.PersonInstruments, Model.OtherPersons, datesByWeek, Model.Attendences);
+}
+@Html.Raw(tableHtml)
+<script>
+    function setTo(setTo, personID, dateID, id) {
+            fetch(`/ShowRehearsels/SetTo`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ setTo, personID, dateID })
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    const element = document.getElementById(id);
+                    if (element) {
+                        element.parentElement.outerHTML = data.html;
+                    }
+                } else {
+                    alert('Failed to update attendance status.');
+                }
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                alert('An error occurred while updating attendance status.');
+            });
+    }
+</script>

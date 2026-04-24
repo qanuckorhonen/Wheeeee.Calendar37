@@ -1,0 +1,18 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <Nullable>disable</Nullable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Wheeeee.Core" Version="1.0.10" />
+    <PackageReference Include="Wheeeee.Repositories" Version="1.0.3" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Wheeeee.Calendar37.Core\Wheeeee.Calendar37.Core.csproj" />
+  </ItemGroup>
+
+</Project>

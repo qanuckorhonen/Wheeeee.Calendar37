@@ -1,0 +1,10 @@
+<Solution>
+  <Folder Name="/Solution Items/">
+    <File Path=".editorconfig" />
+    <File Path="nuget.config" />
+  </Folder>
+  <Project Path="Wheeeee.Calendar37.BL/Wheeeee.Calendar37.BL.csproj" Id="25456f6b-42a5-4bed-a6fa-c65f63280937" />
+  <Project Path="Wheeeee.Calendar37.Core/Wheeeee.Calendar37.Core.csproj" />
+  <Project Path="Wheeeee.Calendar37.Repositories/Wheeeee.Calendar37.Repositories.csproj" />
+  <Project Path="Wheeeee.Calendar37.WebView/Wheeeee.Calendar37.WebView.csproj" />
+</Solution>

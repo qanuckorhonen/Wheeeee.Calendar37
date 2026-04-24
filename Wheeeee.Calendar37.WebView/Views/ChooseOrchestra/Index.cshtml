@@ -1,0 +1,59 @@
+﻿@using Wheeeee.Calendar37.Core.Interfaces
+@using Wheeeee.Calendar37.Repositories.Interfaces
+@using Wheeeee.Core.Extensions
+@model IMembership[]
+
+<h1>Hallo, @Model.First().Person.FirstName</h1>
+<br />
+Bitte wähle einen Kalender aus:
+<br />
+
+<table class="table">
+    <thead>
+        <tr>
+            <th>Name</th>
+            <th>Instrument</th>
+            <th>Rolle</th>
+        </tr>
+    </thead>
+    <tbody>
+        @foreach (var membership in Model.OrderBy(m => m.Orchestra.Name))
+        {
+            <tr>
+                <td>
+                    @{
+                        var cbId = $"{membership.UniqueID}";
+                    }
+                    <input type="checkbox" class="@cbId" />
+                    @{
+                        var href = $"/ShowRehearsels/Index?m={membership.UniqueID}";
+                    }
+                    <a href="@href">
+                        @membership.Orchestra.Name
+                    </a>
+                </td>
+                <td>
+                    @membership.Instruments.OrderBy(i => i.Order).ThenBy(i => i.Name).Select(i => i.Name).Join(", ")
+                </td>
+                <td>
+                    @membership.Roles.OrderBy(r => r.Name).Select(r => r.Name).Join(", ")
+                </td>
+            </tr>
+        }
+    </tbody>
+</table>
+<a id="a_openCheckedLink" href="#" onclick="openChecked();">Kalender für ausgewählte Orchester öffnen</a>
+<br />
+<br />
+Fehlt ein Orchester in Deiner Liste? Dann wende Dich bitte an Deinen Administrator, damit er Dich dem Orchester hinzufügen kann.
+
+<script type="text/javascript">
+
+    function openChecked() {
+        const cbs = document.querySelectorAll("input[type=checkbox]:checked");
+        const classes = Array.from(cbs).map(cb => cb.className).join(",");
+
+        window.location.href = `/ShowRehearsels/Index?m=${classes}`;
+    }
+
+</script>

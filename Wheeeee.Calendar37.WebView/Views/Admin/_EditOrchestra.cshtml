@@ -1,0 +1,12 @@
+﻿@using Wheeeee.Calendar37.Core.Interfaces
+@model IEditableOrchestra
+
+<form id="editForm">
+    <label>Name</label>
+    <input type="text" name="Name" value="@Model.Name" />
+
+    <label>Location</label>
+    <input type="text" name="Location" value="@Model.Location" />
+
+    <button type="button" onclick="saveOrchestra(@Model.Id)">Save</button>
+</form>

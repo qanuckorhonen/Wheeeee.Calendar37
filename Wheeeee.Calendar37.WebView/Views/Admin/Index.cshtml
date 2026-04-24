@@ -1,0 +1,29 @@
+﻿@using Wheeeee.Calendar37.WebView.Controllers
+@using Wheeeee.Core.Extensions
+@*
+    For more information on enabling MVC for empty projects, visit https://go.microsoft.com/fwlink/?LinkID=397860
+*@
+<h1>Adminbereich</h1>
+<select onchange="checkAndLoad();">
+    @Html.Raw("<option value=\"\" selected>" + AdminController.GetOrchestras(Context.Request).Select(o => $"<option value=\"{o.UniqueID}\">{o.Name}</option>").JoinCrLf())
+</select>
+<br />
+<br />
+<div id="editArea" />
+@{
+}
+
+
+<script>
+    function checkAndLoad() {
+        var select = document.querySelector("select");
+        var orchestraId = select.value;
+        if (orchestraId) {
+            $.get("/Admin/GetEditHtml?o=" + orchestraId, function (data) {
+                $("#editArea").html(data);
+            });
+        } else {
+            $("#editArea").html("");
+        }
+    }
+</script>
