@@ -10,6 +10,77 @@
     <link rel="stylesheet" href="~/lib/bootstrap/dist/css/bootstrap.min.css" />
     <link rel="stylesheet" href="~/css/site.css" asp-append-version="true" />
     <link rel="stylesheet" href="~/Wheeeee.Calendar37.WebView.styles.css" asp-append-version="true" />
+
+    <style>
+
+            *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+            :root {
+              --bg:       #0e0f11;
+              --surface:  #17181c;
+              --border:   #2a2b30;
+              --accent:   #c8f060;
+              --text:     #e4e5e8;
+              --muted:    #6b6d75;
+              --radius:   4px;
+            }
+
+            body {
+              min-height: 100vh;
+              display: flex;
+              flex-direction: column;
+              padding: 2rem;
+            }
+
+            .demo-wrap {
+            }
+
+            .demo-label {
+            }
+
+            .tabs-vertical {
+              display: flex;
+              gap: 0;
+              overflow: hidden;
+            }
+            .tabs-vertical .tab-list {
+              display: flex;
+              flex-direction: column;
+              list-style: none;
+            }
+            .tabs-vertical .tab-btn {
+              background: none;
+              border: none;
+              border-left: 2px solid transparent;
+              padding: .8rem 1rem;
+              text-align: left;
+              cursor: pointer;
+              writing-mode: sideways-lr;
+              white-space: nowrap;
+              color: #C0C0C0;
+            }
+            .tabs-vertical .tab-btn:hover  {
+              border-right: 1px solid #C0C0C0;
+              color: #808080;
+            }
+            .tabs-vertical .tab-btn.active {
+              border-right: 2px solid black;
+              color: #000000;
+            }
+            .tabs-vertical .tab-panels { padding: 1.5rem; flex: 1; }
+
+            /* ── shared panel ──────────────────────────── */
+            .tab-panel { display: none; }
+            .tab-panel.active { display: block; }
+
+            .panel-content {
+              font-size: .82rem;
+              line-height: 1.75;
+            }
+            .panel-content strong { font-weight: 500; }
+            .panel-content p + p { margin-top: .75rem; }
+    </style>
+
 </head>
 <body>
     <header>

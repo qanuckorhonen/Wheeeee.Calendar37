@@ -9,10 +9,9 @@
 </select>
 <br />
 <br />
-<div id="editArea" />
-@{
-}
+<div id="editArea">
 
+</div>
 
 <script>
     function checkAndLoad() {
@@ -21,6 +20,8 @@
         if (orchestraId) {
             $.get("/Admin/GetEditHtml?o=" + orchestraId, function (data) {
                 $("#editArea").html(data);
+            }).fail(function() {
+                $("#editArea").html("<p>Failed to load.</p>");
             });
         } else {
             $("#editArea").html("");

@@ -4,6 +4,7 @@
     {
         Guid Id { get; }
         string Name { get; }
+        string Description { get; }
         string Location { get; }
 
         IEnumerable<IEditablePerson> Persons { get; }

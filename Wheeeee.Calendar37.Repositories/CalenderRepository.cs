@@ -462,7 +462,15 @@ where	s.IsCurrent = 1
         public IPersonInstrument GetPersonInstrument(Guid membershipID)
         {
             const string sql = @"
-select	PersonID						=	p.ID,
+declare @t table (name varchar(20), value int)
+insert  @t
+values ('all', 1),
+       ('register', 2),
+       ('group', 3),
+       ('no', 4)
+
+select	top 1
+        PersonID						=	p.ID,
 		PersonFirstName					=	p.FirstName,
 		PersonLastName					=	p.LastName,
 		PersonUniqueID					=	p.UniqueID,
@@ -497,6 +505,8 @@ join	Person_PersonRole pr
 	on	pr.PersonID = p.ID
 join	PersonRole r
 	on	r.ID = pr.PersonRoleID
+join	@t t
+	on	t.name = isnull(json_value(r.Parameters, '$.canEditOthers'), 'no')
 join	Orchestra o
 	on	o.ID = po.OrchestraID
 where	po.PersonalizedGUID = @PGuid
@@ -511,6 +521,7 @@ where	po.PersonalizedGUID = @PGuid
 	and pr.IsActive = 1
 	and r.IsActive = 1
 	and o.IsActive = 1
+order	by	t.value
 ";
 
             var raw = Load(
@@ -541,11 +552,19 @@ declare @orchestraID int
 declare @registerID  int
 declare @groupID     int
 
-select  @seesOthers  = JSON_VALUE(pr.Parameters, '$.seesOthers'),
-        @personID    = po.PersonID,
-        @orchestraID = po.OrchestraID,
-        @registerID  = i.InstrumentRegisterID,
-        @groupID     = ir.InstrumentGroupID
+declare @t table (name varchar(20), value int)
+insert  @t
+values ('all', 1),
+       ('register', 2),
+       ('group', 3),
+       ('no', 4)
+
+select  top 1
+        @seesOthers  =  json_value(pr.Parameters, '$.seesOthers'),
+        @personID    =  po.PersonID,
+        @orchestraID =  po.OrchestraID,
+        @registerID  =  i.InstrumentRegisterID,
+        @groupID     =  ir.InstrumentGroupID
 from    Person_PersonRole ppr
 join    Person_Orchestra po
     on  po.PersonID = ppr.PersonID
@@ -561,6 +580,8 @@ join    InstrumentRegister ir
 join    Season s
     on  s.ID = psi.SeasonID
     and s.OrchestraID = po.OrchestraID
+join    @t t
+    on  t.name = json_value(pr.Parameters, '$.seesOthers')
 where   po.PersonalizedGUID = @PGuid
     and s.IsCurrent = 1
     and ppr.IsActive = 1
@@ -570,6 +591,13 @@ where   po.PersonalizedGUID = @PGuid
     and i.IsActive = 1
     and ir.IsActive = 1
     and s.IsActive = 1
+order   by  t.value
+
+--select '@seesOthers  = ' + convert(varchar(max), @seesOthers )
+--select '@personID    = ' + convert(varchar(max), @personID   )
+--select '@orchestraID = ' + convert(varchar(max), @orchestraID)
+--select '@registerID  = ' + convert(varchar(max), @registerID )
+--select '@groupID     = ' + convert(varchar(max), @groupID    )
 
 select  PersonID                =   p.ID,
         PersonFirstName         =   p.FirstName,
@@ -646,7 +674,7 @@ where   po.OrchestraID = @orchestraID
                             .ToArray();
         }
 
-        public void UpdateAttendence(int personID, int dateID, IsPresent isPresent)
+        public void UpdateAttendence(int personID, int dateID, IsPresent? isPresent)
         {
             const string sql = @"--
 declare @id int = null;
@@ -684,12 +712,13 @@ select	@id
             {
                 { "PersonID", personID },
                 { "EventID", dateID },
-                { "IsPresent", (int)isPresent }
+                { "IsPresent", (int?)isPresent }
             });
         }
 
         public IEditableOrchestra GetEditableOrchestra(Guid orchestraGuid)
         {
+            return new EditableOrchestra();
             throw new NotImplementedException();
         }
 

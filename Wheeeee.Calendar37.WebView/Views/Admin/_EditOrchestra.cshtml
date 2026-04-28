@@ -2,11 +2,70 @@
 @model IEditableOrchestra
 
 <form id="editForm">
-    <label>Name</label>
-    <input type="text" name="Name" value="@Model.Name" />
+    <div class="tabs-vertical" data-tabs>
+        <ul class="tab-list" role="tablist">
+            <li><button type="button" class="tab-btn active" role="tab" data-target="v1">Allgemein</button></li>
+            <li><button type="button" class="tab-btn" role="tab" data-target="v2">Rollen</button></li>
+            <li><button type="button" class="tab-btn" role="tab" data-target="v3">Saisons</button></li>
+            <li><button type="button" class="tab-btn" role="tab" data-target="v4">Termine</button></li>
+            <li><button type="button" class="tab-btn" role="tab" data-target="v5">Instrumentierung</button></li>
+            <li><button type="button" class="tab-btn" role="tab" data-target="v6">Mitwirkende</button></li>
+        </ul>
+        <div class="tab-panels">
+            <div id="v1" class="tab-panel active" role="tabpanel">
+                <div class="panel-content">
+                    <h3>Allgemein</h3>
+                    <partial name="_EditOrchestraGeneral" model="Model" />
+                </div>
+            </div>
+            <div id="v2" class="tab-panel" role="tabpanel">
+                <div class="panel-content">
+                    <strong>Rollen</strong>
+                </div>
+            </div>
+            <div id="v3" class="tab-panel" role="tabpanel">
+                <div class="panel-content">
+                    <strong>Saisons</strong>
+                </div>
+            </div>
+            <div id="v4" class="tab-panel" role="tabpanel">
+                <div class="panel-content">
+                    <strong>Termine</strong>
+                </div>
+            </div>
+            <div id="v5" class="tab-panel" role="tabpanel">
+                <div class="panel-content">
+                    <strong>Instrumentierung</strong>
+                </div>
+            </div>
+            <div id="v6" class="tab-panel" role="tabpanel">
+                <div class="panel-content">
+                    <strong>Mitwirkende</strong>
+                </div>
+            </div>
+        </div>
+    </div>
 
-    <label>Location</label>
-    <input type="text" name="Location" value="@Model.Location" />
+
 
     <button type="button" onclick="saveOrchestra(@Model.Id)">Save</button>
 </form>
+
+            
+<script>
+    // One generic handler for every [data-tabs] container
+    document.querySelectorAll('[data-tabs]').forEach(container => {
+      container.querySelectorAll('[role="tab"]').forEach(btn => {
+        btn.addEventListener('click', () => {
+          // Deactivate all in this container
+          container.querySelectorAll('[role="tab"]').forEach(b => b.classList.remove('active'));
+          container.querySelectorAll('[role="tabpanel"]').forEach(p => p.classList.remove('active'));
+
+          // Activate clicked
+          btn.classList.add('active');
+          const target = document.getElementById(btn.dataset.target);
+          if (target) target.classList.add('active');
+        });
+      });
+    });
+</script>

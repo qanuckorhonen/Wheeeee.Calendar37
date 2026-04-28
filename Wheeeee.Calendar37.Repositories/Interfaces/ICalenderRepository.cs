@@ -20,6 +20,6 @@ namespace Wheeeee.Calendar37.Repositories.Interfaces
         IEnumerable<IPersonInstrument> GetOtherPersonInstruments(IEnumerable<Guid> membershipIDs);
         IEditableOrchestra GetEditableOrchestra(Guid orchestraGuid);
 
-        void UpdateAttendence(int personID, int dateID, IsPresent isPresent);
+        void UpdateAttendence(int personID, int dateID, IsPresent? isPresent);
     }
 }

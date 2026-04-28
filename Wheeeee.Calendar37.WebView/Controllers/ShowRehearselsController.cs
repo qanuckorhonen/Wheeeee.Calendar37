@@ -83,7 +83,9 @@ namespace Wheeeee.Calendar37.WebView.Controllers
             try
             {
                 bool success = true;
-                IsPresent isPresent = request.SetTo.To<IsPresent>();
+                IsPresent? isPresent = request.SetTo.IsNullOrEmpty()
+                    ? null
+                    : request.SetTo.To<IsPresent?>();
                 var html = CalendarRenderer.GetAttendenceHtml(isPresent, true, true, request.PersonID, request.DateID);
                 _repository.UpdateAttendence(request.PersonID, request.DateID, isPresent);
                 return Ok(new
