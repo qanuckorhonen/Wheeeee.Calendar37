@@ -22,14 +22,18 @@ namespace Wheeeee.Calendar37.WebView.Controllers
 
         public IActionResult Index()
         {
-            var membershipIDs = Request.Cookies[Constants.Cookies.MembershipsIDs];
-            if (membershipIDs.IsNullOrEmpty())
+            //return View();
+
+            var personIDs = Request.Cookies[Constants.Cookies.PersonIDs];
+            var person = _repository.GetPersonInfo(personIDs);
+
+            if (person == null)
             {
                 return new RedirectResult("/DontKnowYou/Index");
             }
             else
             {
-                var memberships = _repository.GetMembershipsByUniqueIDs(membershipIDs.Split(',').Select(s => Guid.Parse(s))).ToArray();
+                var memberships = person.SelectMany(p => p.Memberships).ToArray();
                 if (memberships.IsNullOrEmpty())
                 {
                     return new RedirectResult("/DontKnowYou/Index");
@@ -65,21 +69,11 @@ namespace Wheeeee.Calendar37.WebView.Controllers
 
         public static bool GetIsAdmin(HttpRequest request)
         {
-            var membershipIDs = request.Cookies[Constants.Cookies.MembershipsIDs];
-            if (membershipIDs.IsNullOrEmpty())
-            {
-                return false;
-            }
-            else
-            {
-                var repository = (ICalenderRepository)request.HttpContext.RequestServices.GetService(typeof(ICalenderRepository));
-                var memberships = repository.GetMembershipsByUniqueIDs(membershipIDs.Split(',').Select(s => Guid.Parse(s))).ToArray();
-                if (memberships.IsNullOrEmpty())
-                {
-                    return false;
-                }
-                return memberships.Any(m => m.Roles.Any(r => r.IsAdmin));
-            }
+            var personIDs = request.Cookies[Constants.Cookies.PersonIDs];
+            var repository = (ICalenderRepository)request.HttpContext.RequestServices.GetService(typeof(ICalenderRepository));
+            var person = repository.GetPersonInfo(personIDs);
+
+            return person.Any(p => p.Memberships.Any(m => m.Roles.Any(r => r.IsAdmin)));
         }
     }
 }

@@ -4,7 +4,7 @@
     {
         public struct Cookies
         {
-            public const string MembershipsIDs = "Wheeeee.Calendar37.MembershipsIDs";
+            public const string PersonIDs = "Wheeeee.Calendar37.PersonIDs";
         }
 
         public struct Roles

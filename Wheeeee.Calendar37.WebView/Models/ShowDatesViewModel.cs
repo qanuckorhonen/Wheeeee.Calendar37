@@ -9,13 +9,13 @@ namespace Wheeeee.Calendar37.WebView.Models
     {
         private readonly IDictionary<IOrchestra, IEnumerable<IDate>> _dates;
 
-        public ShowDatesViewModel(IPersonInstrument person, IEnumerable<IPersonInstrument> otherPersons, IOrchestra orchestra, IEnumerable<IDate> dates, IEnumerable<IPersonEvent> attendences)
-        {
-            PersonInstruments = [person];
-            OtherPersons = otherPersons.ToArray();
-            Attendences = attendences.ToArray();
-            _dates = new Dictionary<IOrchestra, IEnumerable<IDate>> { { orchestra, dates } };
-        }
+        //public ShowDatesViewModel(IPersonInstrument person, IEnumerable<IPersonInstrument> otherPersons, IOrchestra orchestra, IEnumerable<IDate> dates, IEnumerable<IPersonEvent> attendences)
+        //{
+        //    PersonInstruments = [person];
+        //    OtherPersons = otherPersons.ToArray();
+        //    Attendences = attendences.ToArray();
+        //    _dates = new Dictionary<IOrchestra, IEnumerable<IDate>> { { orchestra, dates } };
+        //}
 
         public ShowDatesViewModel(IEnumerable<IPersonInstrument> persons, IEnumerable<IPersonInstrument> otherPersons, IEnumerable<IOrchestra> orchestras, IEnumerable<IOrchestraDate> dates, IEnumerable<IPersonEvent> attendences)
         {

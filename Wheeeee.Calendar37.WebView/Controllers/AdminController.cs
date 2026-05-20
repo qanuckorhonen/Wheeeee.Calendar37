@@ -24,27 +24,37 @@ namespace Wheeeee.Calendar37.WebView.Controllers
 
         public static IEnumerable<IOrchestra> GetOrchestras(HttpRequest request)
         {
-            var membershipIDs = request.Cookies[Constants.Cookies.MembershipsIDs];
-            if (membershipIDs.IsNullOrEmpty())
-            {
-                return [];
-            }
-            else
-            {
-                var repository = (ICalenderRepository)request.HttpContext.RequestServices.GetService(typeof(ICalenderRepository));
-                var memberships = repository
-                    .GetMembershipsByUniqueIDs(membershipIDs.Split(',').Select(s => Guid.Parse(s)))
-                    .Where(m => m.Roles.Any(r => r.IsAdmin))
-                    .ToArray();
-                if (memberships.IsNullOrEmpty())
-                {
-                    return [];
-                }
-                return memberships
-                    .Select(m => m.Orchestra)
-                    .Distinct()
-                    .ToArray();
-            }
+            var repository = (ICalenderRepository)request.HttpContext.RequestServices.GetService(typeof(ICalenderRepository));
+            var person = repository.GetPersonInfo(request.Cookies[Constants.Cookies.PersonIDs]).ToArray();
+
+            return person?
+                .SelectMany(p => p.Memberships)
+                .Where(m => m.Roles.Any(r => r.IsAdmin))
+                .Select(m => m.Orchestra)
+                .Distinct()
+                .ToArray()
+                ?? [];
+
+            //var personIDs = request.Cookies[Constants.Cookies.PersonIDs];
+            //if (personIDs.IsNullOrEmpty())
+            //{
+            //    return [];
+            //}
+            //else
+            //{
+            //    var memberships = repository
+            //        .GetMembershipsByUniqueIDs(personIDs.Split(',').Select(s => Guid.Parse(s)))
+            //        .Where(m => m.Roles.Any(r => r.IsAdmin))
+            //        .ToArray();
+            //    if (memberships.IsNullOrEmpty())
+            //    {
+            //        return [];
+            //    }
+            //    return memberships
+            //        .Select(m => m.Orchestra)
+            //        .Distinct()
+            //        .ToArray();
+            //}
         }
 
         public ActionResult GetEditHtml(string o)

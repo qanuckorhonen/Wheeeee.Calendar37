@@ -8,6 +8,6 @@ namespace Wheeeee.Calendar37.Core.Interfaces
         Guid UniqueID { get; }
         string FirstName { get; }
         string LastName { get; }
-        CanEditOthers CanEditOthers { get; }
+        IEnumerable<IMembership> Memberships { get; }
     }
 }

@@ -19,96 +19,331 @@ namespace Wheeeee.Calendar37.Repositories
             : base(connectionString)
         { }
 
-        public IEnumerable<IMembership> GetMembershipsByUniqueIDs(IEnumerable<Guid> membershipIDs)
+        public IEnumerable<IMembership> GetMembershipsByUniqueIDs(IEnumerable<Guid> personUniqueIDs)
         {
             string sql = $@"
-declare @pID int
-declare @orchestraID int
+declare @ParsedIDs table
+(
+    PersonUniqueID uniqueidentifier primary key
+);
 
-select	distinct 
-        @pID = p.ID,
-        @orchestraID = o.ID
-from	Person p
-join	Person_Orchestra po
-	on	po.PersonID = p.ID
-join	Orchestra o
-	on	po.OrchestraID = o.ID
-join	Season s
-	on	s.OrchestraID = o.ID
-join	Person_Season_Instrument psi 
-	on	psi.SeasonID = s.ID 
-	and psi.PersonID = po.PersonID
-where	po.PersonalizedGUID in ({membershipIDs.Select(id => id.ToString("D").SurroundWith("'")).Join(",")})
-  and	p.IsActive = 1
-  and	po.IsActive = 1
-  and	o.IsActive = 1
-  and	s.IsCurrent = 1
-  and	s.IsActive = 1
-  and	psi.IsActive = 1
+insert into @ParsedIDs(PersonUniqueID)
+select distinct try_convert(uniqueidentifier, ltrim(rtrim(value)))
+from string_split(@PersonUniqueIDsCsv, ',')
+where try_convert(uniqueidentifier, ltrim(rtrim(value))) is not null;
 
-select	p.ID,
-		p.FirstName,
-		p.LastName,
-		p.UniqueID,
-		CanEditOthers = isnull(json_value(r.Parameters, '$.canEditOthers'), 'no')
-from	Person p
-join	Person_PersonRole pr
-	on	pr.PersonID = p.ID
-join	PersonRole r
-	on	r.ID = pr.PersonRoleID
-where	p.ID = @pID
-	and r.OrchestraID = @orchestraID
-	and	p.IsActive = 1
-	and	pr.IsActive = 1
-	and	r.IsActive = 1
+declare @SessionPersons table
+(
+    SessionPersonID int primary key,
+    SessionPersonUniqueID uniqueidentifier not null,
+    FirstName varchar(100) null,
+    LastName varchar(100) null
+);
 
-select	distinct
-        PersonalizedGUID    =   po.PersonalizedGUID,    
-		OrchestraID			=	o.ID,
-		OrchestraName		=	o.Name,
-		OrchestraUniqueID	=	o.UniqueID,
-		OrchestraRoles		=	(
-			select	string_agg(x.s, '|')
-			from	(
-				select	distinct s = convert(varchar(max), r.ID) + ';' + r.Name
-				from	PersonRole r
-				join	Person_PersonRole pr
-					on	pr.PersonRoleID = r.ID
-				where	pr.PersonID = po.PersonID
-					and	r.OrchestraID = o.ID
-					and	pr.IsActive = 1
-					and	r.IsActive = 1) x),
-		SeasonID			=	s.ID,
-		SeasonCaption		=	s.Caption,
-		Instruments			=	(
-			select	string_agg(x.s, '|')
-			from	(
-				select	distinct s = convert(varchar(max), i.ID) + ';' + i.Name
-				from	Instrument i
-				join	Person_Season_Instrument psi
-					on	psi.InstrumentID = i.ID
-				where	psi.PersonID = po.PersonID
-					and psi.SeasonID = s.ID
-					and	i.IsActive = 1
-					and	psi.IsActive = 1) x)
-from	Person_Orchestra po
-join	Orchestra o
-	on	po.OrchestraID = o.ID
-join	Season s
-	on	s.OrchestraID = o.ID
-join	Person_Season_Instrument psi 
-	on	psi.SeasonID = s.ID 
-	and psi.PersonID = @pID
-join	Instrument i
-	on	i.ID = psi.InstrumentID
-where	po.PersonID = @pID
-	and	po.IsActive = 1
-	and	o.IsActive = 1
-	and	s.IsCurrent = 1
-	and	s.IsActive = 1
-	and	psi.IsActive = 1
-	and	i.IsActive = 1
+insert into @SessionPersons(SessionPersonID, SessionPersonUniqueID, FirstName, LastName)
+select
+    p.ID,
+    p.UniqueID,
+    p.FirstName,
+    p.LastName
+from Person p
+join @ParsedIDs x
+  on x.PersonUniqueID = p.UniqueID
+where p.IsActive = 1;
 
+declare @RoleRows table
+(
+    SessionPersonID int not null,
+    SessionPersonUniqueID uniqueidentifier not null,
+    OrchestraID int not null,
+    OrchestraUniqueID uniqueidentifier not null,
+    OrchestraName varchar(100) not null,
+    RoleID int not null,
+    RoleName varchar(50) null,
+    CanEditOthers varchar(20) not null
+);
+
+insert into @RoleRows
+(
+    SessionPersonID, SessionPersonUniqueID,
+    OrchestraID, OrchestraUniqueID, OrchestraName,
+    RoleID, RoleName, CanEditOthers
+)
+select
+    sp.SessionPersonID,
+    sp.SessionPersonUniqueID,
+    o.ID,
+    o.UniqueID,
+    o.Name,
+    r.ID,
+    r.Name,
+    isnull(json_value(r.Parameters, '$.canEditOthers'), 'no')
+from @SessionPersons sp
+join Person_PersonRole ppr
+  on ppr.PersonID = sp.SessionPersonID
+ and ppr.IsActive = 1
+join PersonRole r
+  on r.ID = ppr.PersonRoleID
+ and r.IsActive = 1
+join Orchestra o
+  on o.ID = r.OrchestraID
+ and o.IsActive = 1;
+
+declare @RoleAgg table
+(
+    SessionPersonID int not null,
+    SessionPersonUniqueID uniqueidentifier not null,
+    OrchestraID int not null,
+    CanEditRank int not null,
+    IsAdmin bit not null,
+    Roles varchar(max) null,
+    primary key (SessionPersonID, OrchestraID)
+);
+
+insert into @RoleAgg
+(
+    SessionPersonID, SessionPersonUniqueID, OrchestraID,
+    CanEditRank, IsAdmin, Roles
+)
+select
+    rr.SessionPersonID,
+    rr.SessionPersonUniqueID,
+    rr.OrchestraID,
+    min(case rr.CanEditOthers
+            when 'all' then 1
+            when 'register' then 2
+            when 'group' then 3
+            else 4
+        end) as CanEditRank,
+    convert(bit, max(case when rr.RoleName = 'Admin' then 1 else 0 end)) as IsAdmin,
+    (
+        select string_agg(x.s, '|')
+        from (
+            select distinct convert(varchar(max), rr2.RoleID) as s
+            from @RoleRows rr2
+            where rr2.SessionPersonID = rr.SessionPersonID
+              and rr2.OrchestraID = rr.OrchestraID
+        ) x
+    ) as Roles
+from @RoleRows rr
+group by rr.SessionPersonID, rr.SessionPersonUniqueID, rr.OrchestraID;
+
+declare @Playing table
+(
+    SessionPersonID int not null,
+    SessionPersonUniqueID uniqueidentifier not null,
+    OrchestraID int not null,
+    OrchestraUniqueID uniqueidentifier not null,
+    OrchestraName varchar(100) not null,
+    SeasonID int not null,
+    SeasonCaption varchar(100) null,
+    primary key (SessionPersonID, OrchestraID, SeasonID)
+);
+
+insert into @Playing
+(
+    SessionPersonID, SessionPersonUniqueID,
+    OrchestraID, OrchestraUniqueID, OrchestraName,
+    SeasonID, SeasonCaption
+)
+select distinct
+    sp.SessionPersonID,
+    sp.SessionPersonUniqueID,
+    po.OrchestraID,
+    o.UniqueID,
+    o.Name,
+    s.ID,
+    s.Caption
+from @SessionPersons sp
+join Person_Orchestra po
+  on po.PersonID = sp.SessionPersonID
+ and po.IsActive = 1
+join Orchestra o
+  on o.ID = po.OrchestraID
+ and o.IsActive = 1
+join vSeason s
+  on s.OrchestraID = po.OrchestraID
+ and s.IsCurrent = 1
+ and s.IsActive = 1
+where exists
+(
+    select 1
+    from Person_Season_Instrument psi
+    where psi.PersonID = sp.SessionPersonID
+      and psi.SeasonID = s.ID
+      and psi.IsActive = 1
+);
+
+declare @InstrumentAgg table
+(
+    SessionPersonID int not null,
+    OrchestraID int not null,
+    Instruments varchar(max) null,
+    primary key (SessionPersonID, OrchestraID)
+);
+
+insert into @InstrumentAgg(SessionPersonID, OrchestraID, Instruments)
+select
+    p.SessionPersonID,
+    p.OrchestraID,
+    (
+        select string_agg(x.s, '|')
+        from (
+            select distinct convert(varchar(max), i.ID) as s
+            from Person_Season_Instrument psi
+            join vSeason s2
+              on s2.ID = psi.SeasonID
+             and s2.IsCurrent = 1
+             and s2.IsActive = 1
+            join Instrument i
+              on i.ID = psi.InstrumentID
+             and i.IsActive = 1
+            where psi.PersonID = p.SessionPersonID
+              and psi.IsActive = 1
+              and s2.OrchestraID = p.OrchestraID
+        ) x
+    ) as Instruments
+from @Playing p
+group by p.SessionPersonID, p.OrchestraID;
+
+declare @Universe table
+(
+    SessionPersonID int not null,
+    SessionPersonUniqueID uniqueidentifier not null,
+    OrchestraID int not null,
+    OrchestraUniqueID uniqueidentifier not null,
+    OrchestraName varchar(100) not null,
+    primary key (SessionPersonID, OrchestraID)
+);
+
+insert into @Universe
+(
+    SessionPersonID, SessionPersonUniqueID,
+    OrchestraID, OrchestraUniqueID, OrchestraName
+)
+select distinct
+    p.SessionPersonID,
+    p.SessionPersonUniqueID,
+    p.OrchestraID,
+    p.OrchestraUniqueID,
+    p.OrchestraName
+from @Playing p;
+
+insert into @Universe
+(
+    SessionPersonID, SessionPersonUniqueID,
+    OrchestraID, OrchestraUniqueID, OrchestraName
+)
+select
+    rr.SessionPersonID,
+    rr.SessionPersonUniqueID,
+    rr.OrchestraID,
+    rr.OrchestraUniqueID,
+    rr.OrchestraName
+from
+(
+    select distinct
+        SessionPersonID, SessionPersonUniqueID,
+        OrchestraID, OrchestraUniqueID, OrchestraName
+    from @RoleRows
+) rr
+where not exists
+(
+    select 1
+    from @Universe u
+    where u.SessionPersonID = rr.SessionPersonID
+      and u.OrchestraID = rr.OrchestraID
+);
+
+declare @Context table
+(
+    PersonID int not null,
+    OrchestraID int not null,
+    SeasonID int null,
+    InstrumentIDs varchar(max) null,
+    RoleIDs varchar(max) null,
+    IsAdmin bit not null,
+    HasPlayingMembership bit not null,
+    EffectiveCanEditOthers varchar(20) not null,
+    RehearsalVisible bit not null,
+    primary key (PersonID, OrchestraID)
+);
+
+insert into @Context
+(
+    PersonID,
+    OrchestraID,
+    SeasonID,
+    InstrumentIDs,
+    RoleIDs,
+    IsAdmin,
+    HasPlayingMembership,
+    EffectiveCanEditOthers,
+    RehearsalVisible
+)
+select
+    u.SessionPersonID,
+    u.OrchestraID,
+    p.SeasonID,
+    ia.Instruments,
+
+    ra.Roles,
+    isnull(ra.IsAdmin, 0) as IsAdmin,
+
+    convert(bit, case when p.OrchestraID is null then 0 else 1 end) as HasPlayingMembership,
+
+    case isnull(ra.CanEditRank, 4)
+        when 1 then 'all'
+        when 2 then 'register'
+        when 3 then 'group'
+        else 'no'
+    end as EffectiveCanEditOthers,
+
+    convert(bit, case
+        when p.OrchestraID is not null then 1
+        when isnull(ra.CanEditRank, 4) = 1 then 1
+        else 0
+    end) as RehearsalVisible
+from @Universe u
+left join @Playing p
+  on p.SessionPersonID = u.SessionPersonID
+ and p.OrchestraID = u.OrchestraID
+left join @RoleAgg ra
+  on ra.SessionPersonID = u.SessionPersonID
+ and ra.OrchestraID = u.OrchestraID
+left join @InstrumentAgg ia
+  on ia.SessionPersonID = u.SessionPersonID
+ and ia.OrchestraID = u.OrchestraID;
+
+--------------------------------------------------------------------------------
+-- RESULT SET 1: resolved session persons
+--------------------------------------------------------------------------------
+select
+    ID        =   sp.SessionPersonID,
+    UniqueID  =   sp.SessionPersonUniqueID,
+    sp.FirstName,
+    sp.LastName
+from @SessionPersons sp
+order by sp.LastName, sp.FirstName, sp.SessionPersonID;
+
+--------------------------------------------------------------------------------
+-- RESULT SET 2: per-person orchestra contexts
+--------------------------------------------------------------------------------
+select
+    c.PersonID,
+    c.OrchestraID,
+    c.SeasonID,
+    c.InstrumentIDs,
+    c.RoleIDs,
+    c.IsAdmin,
+    c.HasPlayingMembership,
+    c.EffectiveCanEditOthers,
+    c.RehearsalVisible
+from @Context c
+
+--------------------------------------------------------------------------------
+-- RESULT SET 3: instruments per orchestra
+--------------------------------------------------------------------------------
 select	ID					    =	i.ID,
 		Name					=	i.Name,
 		[Order]					=	i.[Order],
@@ -122,17 +357,43 @@ join	InstrumentRegister ir
 	on	ir.ID = i.InstrumentRegisterID
 join	InstrumentGroup ig
 	on	ig.ID = ir.InstrumentGroupID
---	and	ig.OrchestraID = @orchestraID
 where	i.IsActive = 1
 	and	ir.IsActive = 1
 	and	ig.IsActive = 1
+
+--------------------------------------------------------------------------------
+-- RESULT SET 4: roles per orchestra
+--------------------------------------------------------------------------------
+select	r.ID,
+		r.Name,
+        r.OrchestraID
+from	PersonRole r
+where	r.IsActive = 1
+
+--------------------------------------------------------------------------------
+-- RESULT SET 5: attendence optiones per orchestra
+--------------------------------------------------------------------------------
+select	ao.ID,
+		ao.AltText,
+		ao.Value,
+		ao.OrchestraID,
+		ao.ColorLight,
+		ao.ColorDark,
+		ao.SymbolName,
+		ao.Comment,
+		ao.IsMandatory,
+		ao.[Order]
+from	AttendenceOption ao
+join	@Universe u
+	on	u.OrchestraID = ao.OrchestraID
+where	IsActive = 1
 ";
 
-            DataSet dataSet = LoadDataSet(sql, ["p", "m", "i"]);
+            DataSet dataSet = LoadDataSet(sql, ["p", "m", "i", "r", "ao"], new Dictionary<string, object> { { "PersonUniqueIDsCsv", string.Join(",", personUniqueIDs) } });
             DataRow row = dataSet.Tables["p"].Rows.Cast<DataRow>().FirstOrDefault();
             if (row == null)
             {
-                return Enumerable.Empty<IMembership>();
+                return [];
             }
             var personData = DataRowExtension.ToDataCollection(row);
             personData.Add("CanEditOthers", dataSet.Tables["p"].Rows.Cast<DataRow>().Select(r => r["CanEditOthers"].To<CanEditOthers>()).Min());
@@ -141,16 +402,22 @@ where	i.IsActive = 1
                 .Rows.Cast<DataRow>()
                 .Select(r => InstantiateInstrument(DataRowExtension.ToDataCollection(r)))
                 .ToArray();
+            var attendenceOptions = dataSet.Tables["ao"]
+                .Rows.Cast<DataRow>()
+                .Select(r => InstantiateAttendenceOption(DataRowExtension.ToDataCollection(r)))
+                .ToArray();
             var memberships = dataSet.Tables["m"]
                 .Rows.Cast<DataRow>()
                 .Select(r => r.ToDataCollection())
                 .Select(r =>
                 {
-                    var orchestra = InstantiateOrchestra(r, "Orchestra");
+                    var orchestra = InstantiateOrchestra(r, attendenceOptions.Where(ao => ao.OrchestraID == r.Get<int>("OrchestraID")), "Orchestra");
 
                     var season = new Season(
                         r.Get<int>("SeasonID"),
                         r.Get<string>("SeasonCaption"),
+                        r.Get<DateTime?>("StartDate"),
+                        r.Get<DateTime?>("EndDate"),
                         orchestra);
 
                     var rolesDataRows = r.Get<string>("OrchestraRoles")?.Split('|') ?? Array.Empty<string>();
@@ -158,7 +425,7 @@ where	i.IsActive = 1
                         .Select(s =>
                         {
                             var parts = s.Split(';');
-                            return new Role(int.Parse(parts[0]), parts[1]);
+                            return new Role(int.Parse(parts[0]), parts[1], "");
                         })
                         .ToArray();
 
@@ -185,106 +452,121 @@ select	distinct
         @orchestraID = o.ID
 from	Person p
 join	Person_Orchestra po
-	on	po.PersonID = p.ID
+    on	po.PersonID = p.ID
 join	Orchestra o
-	on	po.OrchestraID = o.ID
+    on	po.OrchestraID = o.ID
 join	Season s
-	on	s.OrchestraID = o.ID
+    on	s.OrchestraID = o.ID
 join	Person_Season_Instrument psi 
-	on	psi.SeasonID = s.ID 
-	and psi.PersonID = po.PersonID
-where	po.PersonalizedGUID = '{membershipID:D}'
-  and	p.IsActive = 1
-  and	po.IsActive = 1
-  and	o.IsActive = 1
-  and	s.IsCurrent = 1
-  and	s.IsActive = 1
-  and	psi.IsActive = 1
+    on	psi.SeasonID = s.ID 
+    and psi.PersonID = po.PersonID
+where	po.PersonalizedGUID = @PGuid
+    and	p.IsActive = 1
+    and	po.IsActive = 1
+    and	o.IsActive = 1
+    and	s.IsCurrent = 1
+    and	s.IsActive = 1
+    and	psi.IsActive = 1
 
 select	p.ID,
-		p.FirstName,
-		p.LastName,
-		p.UniqueID,
-		CanEditOthers = isnull(json_value(r.Parameters, '$.canEditOthers'), 'no')
+        p.FirstName,
+        p.LastName,
+        p.UniqueID,
+        CanEditOthers = isnull(json_value(r.Parameters, '$.canEditOthers'), 'no')
 from	Person p
 join	Person_PersonRole pr
-	on	pr.PersonID = p.ID
+    on	pr.PersonID = p.ID
 join	PersonRole r
-	on	r.ID = pr.PersonRoleID
+    on	r.ID = pr.PersonRoleID
 where	p.ID = @pID
-	and r.OrchestraID = @orchestraID
-	and	p.IsActive = 1
-	and	pr.IsActive = 1
-	and	r.IsActive = 1
+    and r.OrchestraID = @orchestraID
+    and	p.IsActive = 1
+    and	pr.IsActive = 1
+    and	r.IsActive = 1
 
 select	distinct
         PersonalizedGUID    =   po.PersonalizedGUID,    
-		OrchestraID			=	o.ID,
-		OrchestraName		=	o.Name,
-		OrchestraUniqueID	=	o.UniqueID,
-		OrchestraRoles		=	(
-			select	string_agg(x.s, '|')
-			from	(
-				select	distinct s = convert(varchar(max), r.ID) + ';' + r.Name
-				from	PersonRole r
-				join	Person_PersonRole pr
-					on	pr.PersonRoleID = r.ID
-				where	pr.PersonID = po.PersonID
-					and	r.OrchestraID = o.ID
-					and	pr.IsActive = 1
-					and	r.IsActive = 1) x),
-		SeasonID			=	s.ID,
-		SeasonCaption		=	s.Caption,
-		Instruments			=	(
-			select	string_agg(x.s, '|')
-			from	(
-				select	distinct s = convert(varchar(max), i.ID) + ';' + i.Name
-				from	Instrument i
-				join	Person_Season_Instrument psi
-					on	psi.InstrumentID = i.ID
-				where	psi.PersonID = po.PersonID
-					and psi.SeasonID = s.ID
-					and	i.IsActive = 1
-					and	psi.IsActive = 1) x)
+        OrchestraID			=	o.ID,
+        OrchestraName		=	o.Name,
+        OrchestraUniqueID	=	o.UniqueID,
+        OrchestraColor1     =	o.Color1,
+        OrchestraRoles		=	(
+        	select	string_agg(x.s, '|')
+        	from	(
+        		select	distinct s = convert(varchar(max), r.ID) + ';' + r.Name
+        		from	PersonRole r
+        		join	Person_PersonRole pr
+        			on	pr.PersonRoleID = r.ID
+        		where	pr.PersonID = po.PersonID
+        			and	r.OrchestraID = o.ID
+        			and	pr.IsActive = 1
+        			and	r.IsActive = 1) x),
+        SeasonID			=	s.ID,
+        SeasonCaption		=	s.Caption,
+        Instruments			=	(
+        	select	string_agg(x.s, '|')
+        	from	(
+        		select	distinct s = convert(varchar(max), i.ID) + ';' + i.Name
+        		from	Instrument i
+        		join	Person_Season_Instrument psi
+        			on	psi.InstrumentID = i.ID
+        		where	psi.PersonID = po.PersonID
+        			and psi.SeasonID = s.ID
+        			and	i.IsActive = 1
+        			and	psi.IsActive = 1) x)
 from	Person_Orchestra po
 join	Orchestra o
-	on	po.OrchestraID = o.ID
+    on	po.OrchestraID = o.ID
 join	Season s
-	on	s.OrchestraID = o.ID
+    on	s.OrchestraID = o.ID
 join	Person_Season_Instrument psi 
-	on	psi.SeasonID = s.ID 
-	and psi.PersonID = @pID
+    on	psi.SeasonID = s.ID 
+    and psi.PersonID = @pID
 join	Instrument i
-	on	i.ID = psi.InstrumentID
+    on	i.ID = psi.InstrumentID
 where	po.PersonID = @pID
-	and po.PersonalizedGUID = '{membershipID:D}'
-	and	po.IsActive = 1
-	and	o.IsActive = 1
-	and	s.IsCurrent = 1
-	and	s.IsActive = 1
-	and	psi.IsActive = 1
-	and	i.IsActive = 1
+    and po.PersonalizedGUID = @PGuid
+    and	po.IsActive = 1
+    and	o.IsActive = 1
+    and	s.IsCurrent = 1
+    and	s.IsActive = 1
+    and	psi.IsActive = 1
+    and	i.IsActive = 1
 
 select	ID					    =	i.ID,
-		Name					=	i.Name,
-		[Order]					=	i.[Order],
-		RegisterName			=	ir.Name,
-		RegisterOrder			=	ir.[Order],
-		GroupName				=	ig.Name,
-		GroupOrder			    =	ig.[Order],
-		ig.OrchestraID
+        Name					=	i.Name,
+        [Order]					=	i.[Order],
+        RegisterName			=	ir.Name,
+        RegisterOrder			=	ir.[Order],
+        GroupName				=	ig.Name,
+        GroupOrder			    =	ig.[Order],
+        ig.OrchestraID
 from	Instrument i
 join	InstrumentRegister ir
-	on	ir.ID = i.InstrumentRegisterID
+    on	ir.ID = i.InstrumentRegisterID
 join	InstrumentGroup ig
-	on	ig.ID = ir.InstrumentGroupID
+    on	ig.ID = ir.InstrumentGroupID
 --	and	ig.OrchestraID = @orchestraID
 where	i.IsActive = 1
-	and	ir.IsActive = 1
-	and	ig.IsActive = 1
+    and	ir.IsActive = 1
+    and	ig.IsActive = 1
+
+select	ao.ID,
+		ao.AltText,
+		ao.Value,
+		ao.OrchestraID,
+		ao.ColorLight,
+		ao.ColorDark,
+		ao.SymbolName,
+		ao.Comment,
+		ao.IsMandatory,
+		ao.[Order]
+from	AttendenceOption ao
+where	ao.IsActive = 1
+    and ao.OrchestraID = @orchestraID
 ";
 
-            DataSet dataSet = LoadDataSet(sql, ["p", "m", "i"]);
+            DataSet dataSet = LoadDataSet(sql, ["p", "m", "i", "ao"], new Dictionary<string, object> { { "PGuid", membershipID } });
             var persons = dataSet.Tables["p"]
                         .Rows.Cast<DataRow>().Select(r => InstantiatePerson(DataRowExtension.ToDataCollection(r)))
                         .ToArray();
@@ -298,21 +580,26 @@ where	i.IsActive = 1
                 persons[0].UniqueID,
                 persons[0].FirstName,
                 persons[0].LastName,
-                persons.Min(p => p.CanEditOthers));
+                persons[0].Memberships);
             var allInstruments = dataSet.Tables["i"]
                  .Rows.Cast<DataRow>()
                  .Select(r => InstantiateInstrument(DataRowExtension.ToDataCollection(r)))
                  .ToArray();
+            var attendenceOptions = dataSet.Tables["ao"]
+                .Rows.Cast<DataRow>()
+                .Select(r => InstantiateAttendenceOption(DataRowExtension.ToDataCollection(r)))
+                .ToArray();
             var membership = dataSet.Tables["m"]
                 .Rows.Cast<DataRow>()
                 .Select(r => r.ToDataCollection())
                 .Select(r =>
                 {
-                    var orchestra = InstantiateOrchestra(r, "Orchestra");
+                    var orchestra = InstantiateOrchestra(r, attendenceOptions.Where(ao => ao.OrchestraID == r.Get<int>("OrchestraID")), "Orchestra");
 
                     var season = new Season(
                         r.Get<int>("SeasonID"),
                         r.Get<string>("SeasonCaption"),
+                        null, null,
                         orchestra);
 
                     var rolesDataRows = r.Get<string>("OrchestraRoles")?.Split('|') ?? Array.Empty<string>();
@@ -320,7 +607,7 @@ where	i.IsActive = 1
                         .Select(s =>
                         {
                             var parts = s.Split(';');
-                            return new Role(int.Parse(parts[0]), parts[1]);
+                            return new Role(int.Parse(parts[0]), parts[1], "");
                         })
                         .ToArray();
 
@@ -338,67 +625,524 @@ where	i.IsActive = 1
         public IPerson GetPersonByUniqueID(string uniqueID)
         {
             const string sql = @"
-select  t.ID,
-        t.UniqueID,
-        t.FirstName,
-        t.LastName,
-        os = string_agg(os, '|')
-from   (
-        select  p.ID,
-                p.UniqueID,
-                p.FirstName,
-                p.LastName,
-                os = convert(varchar(max), o.ID) + ';' + convert(varchar(max), o.UniqueID) + ';' + o.Name
-        from    Person p(nolock)
-        join    Person_PersonRole ppr(nolock)
-            on  ppr.PersonID = p.ID
-        join    PersonRole pr(nolock)
-            on  pr.ID = ppr.PersonRoleID
-        join    Orchestra o(nolock)
-            on  o.ID = pr.OrchestraID
-        where   p.UniqueID = @UniqueID
-            and p.IsActive = 1
-            and ppr.IsActive = 1
-            and pr.IsActive = 1
-            and o.IsActive = 1
-        ) t
-group   by  t.ID,
-            t.UniqueID,
-            t.FirstName,
-            t.LastName
-";
+        select  t.ID,
+                t.UniqueID,
+                t.FirstName,
+                t.LastName,
+                os = string_agg(os, '|')
+        from   (
+                select  p.ID,
+                        p.UniqueID,
+                        p.FirstName,
+                        p.LastName,
+                        os = convert(varchar(max), o.ID) + ';' + convert(varchar(max), o.UniqueID) + ';' + o.Name
+                from    Person p(nolock)
+                join    Person_PersonRole ppr(nolock)
+                    on  ppr.PersonID = p.ID
+                join    PersonRole pr(nolock)
+                    on  pr.ID = ppr.PersonRoleID
+                join    Orchestra o(nolock)
+                    on  o.ID = pr.OrchestraID
+                where   p.UniqueID = @UniqueID
+                    and p.IsActive = 1
+                    and ppr.IsActive = 1
+                    and pr.IsActive = 1
+                    and o.IsActive = 1
+                ) t
+        group   by  t.ID,
+                    t.UniqueID,
+                    t.FirstName,
+                    t.LastName
+        ";
 
             return Load(sql, d => InstantiatePerson(d), new Dictionary<string, object> { { "UniqueID", uniqueID } }).SingleOrDefault();
+        }
+
+        public IEnumerable<IPerson> GetPersonInfo(string personUniqueIDs)
+        {
+            const string sql = @"
+declare @SessionPersons table
+(
+    SessionPersonID int primary key,
+    SessionPersonUniqueID uniqueidentifier not null,
+    FirstName varchar(100) null,
+    LastName varchar(100) null
+);
+
+insert into @SessionPersons(SessionPersonID, SessionPersonUniqueID, FirstName, LastName)
+select
+    p.ID,
+    p.UniqueID,
+    p.FirstName,
+    p.LastName
+from Person p
+where p.UniqueID = @PersonUniqueID
+  and p.IsActive = 1;
+
+declare @RoleRows table
+(
+    SessionPersonID int not null,
+    SessionPersonUniqueID uniqueidentifier not null,
+    OrchestraID int not null,
+    OrchestraUniqueID uniqueidentifier not null,
+    OrchestraName varchar(100) not null,
+    RoleID int not null,
+    RoleName varchar(50) null,
+    CanEditOthers varchar(20) not null
+);
+
+insert into @RoleRows
+(
+    SessionPersonID, SessionPersonUniqueID,
+    OrchestraID, OrchestraUniqueID, OrchestraName,
+    RoleID, RoleName, CanEditOthers
+)
+select
+    sp.SessionPersonID,
+    sp.SessionPersonUniqueID,
+    o.ID,
+    o.UniqueID,
+    o.Name,
+    r.ID,
+    r.Name,
+    isnull(json_value(r.Parameters, '$.canEditOthers'), 'no')
+from @SessionPersons sp
+join Person_PersonRole ppr
+  on ppr.PersonID = sp.SessionPersonID
+ and ppr.IsActive = 1
+join PersonRole r
+  on r.ID = ppr.PersonRoleID
+ and r.IsActive = 1
+join Orchestra o
+  on o.ID = r.OrchestraID
+ and o.IsActive = 1;
+
+declare @RoleAgg table
+(
+    SessionPersonID int not null,
+    SessionPersonUniqueID uniqueidentifier not null,
+    OrchestraID int not null,
+    CanEditRank int not null,
+    IsAdmin bit not null,
+    Roles varchar(max) null,
+    primary key (SessionPersonID, OrchestraID)
+);
+
+insert into @RoleAgg
+(
+    SessionPersonID, SessionPersonUniqueID, OrchestraID,
+    CanEditRank, IsAdmin, Roles
+)
+select
+    rr.SessionPersonID,
+    rr.SessionPersonUniqueID,
+    rr.OrchestraID,
+    min(case rr.CanEditOthers
+            when 'all' then 1
+            when 'register' then 2
+            when 'group' then 3
+            else 4
+        end) as CanEditRank,
+    convert(bit, max(case when rr.RoleName = 'Admin' then 1 else 0 end)) as IsAdmin,
+    (
+        select string_agg(x.s, '|')
+        from (
+            select distinct convert(varchar(max), rr2.RoleID) as s
+            from @RoleRows rr2
+            where rr2.SessionPersonID = rr.SessionPersonID
+              and rr2.OrchestraID = rr.OrchestraID
+        ) x
+    ) as Roles
+from @RoleRows rr
+group by rr.SessionPersonID, rr.SessionPersonUniqueID, rr.OrchestraID;
+
+declare @Playing table
+(
+    SessionPersonID int not null,
+    SessionPersonUniqueID uniqueidentifier not null,
+    OrchestraID int not null,
+    OrchestraUniqueID uniqueidentifier not null,
+    OrchestraName varchar(100) not null,
+    SeasonID int not null,
+    SeasonCaption varchar(100) null,
+    primary key (SessionPersonID, OrchestraID, SeasonID)
+);
+
+insert into @Playing
+(
+    SessionPersonID, SessionPersonUniqueID,
+    OrchestraID, OrchestraUniqueID, OrchestraName,
+    SeasonID, SeasonCaption
+)
+select distinct
+    sp.SessionPersonID,
+    sp.SessionPersonUniqueID,
+    po.OrchestraID,
+    o.UniqueID,
+    o.Name,
+    s.ID,
+    s.Caption
+from @SessionPersons sp
+join Person_Orchestra po
+  on po.PersonID = sp.SessionPersonID
+ and po.IsActive = 1
+join Orchestra o
+  on o.ID = po.OrchestraID
+ and o.IsActive = 1
+join vSeason s
+  on s.OrchestraID = po.OrchestraID
+ and s.IsCurrent = 1
+ and s.IsActive = 1
+where exists
+(
+    select 1
+    from Person_Season_Instrument psi
+    where psi.PersonID = sp.SessionPersonID
+      and psi.SeasonID = s.ID
+      and psi.IsActive = 1
+);
+
+declare @InstrumentAgg table
+(
+    SessionPersonID int not null,
+    OrchestraID int not null,
+    Instruments varchar(max) null,
+    primary key (SessionPersonID, OrchestraID)
+);
+
+insert into @InstrumentAgg(SessionPersonID, OrchestraID, Instruments)
+select
+    p.SessionPersonID,
+    p.OrchestraID,
+    (
+        select string_agg(x.s, '|')
+        from (
+            select distinct convert(varchar(max), i.ID) as s
+            from Person_Season_Instrument psi
+            join vSeason s2
+              on s2.ID = psi.SeasonID
+             and s2.IsCurrent = 1
+             and s2.IsActive = 1
+            join Instrument i
+              on i.ID = psi.InstrumentID
+             and i.IsActive = 1
+            where psi.PersonID = p.SessionPersonID
+              and psi.IsActive = 1
+              and s2.OrchestraID = p.OrchestraID
+        ) x
+    ) as Instruments
+from @Playing p
+group by p.SessionPersonID, p.OrchestraID;
+
+declare @Universe table
+(
+    SessionPersonID int not null,
+    SessionPersonUniqueID uniqueidentifier not null,
+    OrchestraID int not null,
+    OrchestraUniqueID uniqueidentifier not null,
+    OrchestraName varchar(100) not null,
+    primary key (SessionPersonID, OrchestraID)
+);
+
+insert into @Universe
+(
+    SessionPersonID, SessionPersonUniqueID,
+    OrchestraID, OrchestraUniqueID, OrchestraName
+)
+select distinct
+    p.SessionPersonID,
+    p.SessionPersonUniqueID,
+    p.OrchestraID,
+    p.OrchestraUniqueID,
+    p.OrchestraName
+from @Playing p;
+
+insert into @Universe
+(
+    SessionPersonID, SessionPersonUniqueID,
+    OrchestraID, OrchestraUniqueID, OrchestraName
+)
+select
+    rr.SessionPersonID,
+    rr.SessionPersonUniqueID,
+    rr.OrchestraID,
+    rr.OrchestraUniqueID,
+    rr.OrchestraName
+from
+(
+    select distinct
+        SessionPersonID, SessionPersonUniqueID,
+        OrchestraID, OrchestraUniqueID, OrchestraName
+    from @RoleRows
+) rr
+where not exists
+(
+    select 1
+    from @Universe u
+    where u.SessionPersonID = rr.SessionPersonID
+      and u.OrchestraID = rr.OrchestraID
+);
+
+declare @Context table
+(
+    PersonID int not null,
+    OrchestraID int not null,
+    SeasonID int null,
+    InstrumentIDs varchar(max) null,
+    RoleIDs varchar(max) null,
+    IsAdmin bit not null,
+    HasPlayingMembership bit not null,
+    MembershipUniqueID uniqueidentifier null,
+    EffectiveCanEditOthers varchar(20) not null,
+    RehearsalVisible bit not null,
+    primary key (PersonID, OrchestraID)
+);
+
+insert into @Context
+(
+    PersonID,
+    OrchestraID,
+    SeasonID,
+    InstrumentIDs,
+    RoleIDs,
+    IsAdmin,
+    HasPlayingMembership,
+    MembershipUniqueID,
+    EffectiveCanEditOthers,
+    RehearsalVisible
+)
+select
+    u.SessionPersonID,
+    u.OrchestraID,
+    p.SeasonID,
+    ia.Instruments,
+    ra.Roles,
+    isnull(ra.IsAdmin, 0) as IsAdmin,
+    convert(bit, case when p.OrchestraID is null then 0 else 1 end) as HasPlayingMembership,
+    po.PersonalizedGUID as MembershipUniqueID,
+    case isnull(ra.CanEditRank, 4)
+        when 1 then 'all'
+        when 2 then 'register'
+        when 3 then 'group'
+        else 'no'
+    end as EffectiveCanEditOthers,
+    convert(bit, case
+        when p.OrchestraID is not null then 1
+        when isnull(ra.CanEditRank, 4) = 1 then 1
+        else 0
+    end) as RehearsalVisible
+from @Universe u
+left join @Playing p
+  on p.SessionPersonID = u.SessionPersonID
+ and p.OrchestraID = u.OrchestraID
+left join @RoleAgg ra
+  on ra.SessionPersonID = u.SessionPersonID
+ and ra.OrchestraID = u.OrchestraID
+left join @InstrumentAgg ia
+  on ia.SessionPersonID = u.SessionPersonID
+ and ia.OrchestraID = u.OrchestraID
+left join Person_Orchestra po
+  on po.PersonID = u.SessionPersonID
+ and po.OrchestraID = u.OrchestraID
+ and po.IsActive = 1;
+
+/* RESULT SET 1 */
+select
+    ID        = sp.SessionPersonID,
+    UniqueID  = sp.SessionPersonUniqueID,
+    sp.FirstName,
+    sp.LastName
+from @SessionPersons sp
+order by sp.LastName, sp.FirstName, sp.SessionPersonID;
+
+/* RESULT SET 2 */
+select
+    c.PersonID,
+    c.OrchestraID,
+    c.SeasonID,
+    c.InstrumentIDs,
+    c.RoleIDs,
+    c.IsAdmin,
+    c.HasPlayingMembership,
+    c.MembershipUniqueID,
+    c.EffectiveCanEditOthers,
+    c.RehearsalVisible
+from @Context c;
+
+/* RESULT SET 3 */
+select
+    ID            = i.ID,
+    Name          = i.Name,
+    [Order]       = i.[Order],
+    RegisterName  = ir.Name,
+    RegisterOrder = ir.[Order],
+    GroupName     = ig.Name,
+    GroupOrder    = ig.[Order],
+    ig.OrchestraID
+from Instrument i
+join InstrumentRegister ir
+  on ir.ID = i.InstrumentRegisterID
+join InstrumentGroup ig
+  on ig.ID = ir.InstrumentGroupID
+where i.IsActive = 1
+  and ir.IsActive = 1
+  and ig.IsActive = 1;
+
+/* RESULT SET 4 */
+select
+    r.ID,
+    r.Name,
+    r.OrchestraID,
+    r.Parameters
+from PersonRole r
+where r.IsActive = 1;
+
+/* RESULT SET 5 */
+select
+    o.ID,
+    o.Name,
+    o.UniqueID,
+    o.Color1
+from Orchestra o
+where o.IsActive = 1;
+
+/* RESULT SET 5 */
+select	ao.ID,
+		ao.AltText,
+		ao.Value,
+		ao.OrchestraID,
+		ao.ColorLight,
+		ao.ColorDark,
+		ao.SymbolName,
+		ao.Comment,
+		ao.IsMandatory,
+		ao.[Order]
+from	AttendenceOption ao
+join	@Universe u
+	on	u.OrchestraID = ao.OrchestraID
+where	IsActive = 1
+";
+
+            var ds = LoadDataSet(sql, ["p", "c", "i", "r", "o", "ao"], new Dictionary<string, object> { { "PersonUniqueID", personUniqueIDs } });
+            var ps = ds.Tables["p"].Rows.Cast<DataRow>().Select(r => DataRowExtension.ToDataCollection(r)).ToArray();
+            if (ps.Length == 0)
+            {
+                return null;
+            }
+
+            var attendenceOptions = ds.Tables["ao"].Rows.Cast<DataRow>().Select(r => InstantiateAttendenceOption(DataRowExtension.ToDataCollection(r))).ToArray();
+            var orchestras = ds.Tables["o"].Rows.Cast<DataRow>()
+                .Select(r => DataRowExtension.ToDataCollection(r))
+                .Select(r => InstantiateOrchestra(r, attendenceOptions.Where(ao => ao.OrchestraID == r.Get<int>("ID"))))
+                .ToArray();
+            var instruments = ds.Tables["i"].Rows.Cast<DataRow>().Select(r => InstantiateInstrument(DataRowExtension.ToDataCollection(r))).ToArray();
+            var roles = ds.Tables["r"].Rows.Cast<DataRow>().Select(r => InstantiateRole(DataRowExtension.ToDataCollection(r))).ToArray();
+
+            var contexts = ds.Tables["c"].Rows.Cast<DataRow>()
+                .Select(r => r.ToDataCollection())
+                .Select(r =>
+                    {
+                        var orchestraID = r.Get<int>("OrchestraID");
+                        Orchestra orchestra = orchestras.Single(o => o.ID == orchestraID);
+                        return new OrchestraContext(
+                            r.Get<Guid?>("MembershipUniqueID"),
+                            LoadPerson(r.Get<int>("PersonID")),
+                            LoadSeason(r.Get<int?>("SeasonID"), orchestra),
+                            r.Get<string>("InstrumentIDs")?.Split('|').Select(s => instruments.Single(i => i.ID == int.Parse(s))).ToArray() ?? [],
+                            r.Get<string>("RoleIDs")?.Split('|').Select(s => roles.Single(ro => ro.ID == int.Parse(s))).ToArray() ?? [],
+                            r.Get<bool>("IsAdmin"),
+                            r.Get<bool>("HasPlayingMembership"),
+                            r.Get<CanEditOthers>("EffectiveCanEditOthers"),
+                            r.Get<bool>("RehearsalVisible"),
+                            orchestra);
+                    })
+                .ToArray();
+
+            return ps
+                .Select(p =>
+                    {
+                        var personContexts = contexts.Where(c => c.Person.ID == p.Get<int>("ID")).ToArray();
+                        return new Person(
+                            p.Get<int>("ID"),
+                            p.Get<Guid>("UniqueID"),
+                            p.Get<string>("FirstName"),
+                            p.Get<string>("LastName"),
+                            personContexts);
+                    })
+                .ToArray();
+        }
+
+        private IPerson LoadPerson(int id)
+        {
+            const string sql = @"
+select	ID,
+		UniqueID,
+		FirstName,
+		LastName
+from	Person
+where	IsActive = 1
+    and ID = @ID
+";
+
+            return Load(sql, d => InstantiatePerson(d), new Dictionary<string, object> { { "ID", id } }).SingleOrDefault();
+        }
+
+        private Season LoadSeason(int? id, IOrchestra orchestra)
+        {
+            if (id == null)
+            {
+                return null;
+            }
+
+            string sql = @"
+select  s.ID,
+		s.OrchestraID,
+		Caption,
+		StartDate,
+		EndDate,
+		Comment
+from	Season s
+where	IsActive = 1
+	and s.ID = @ID
+";
+            if (orchestra != null)
+            {
+                sql += @"
+	and s.OrchestraID = @OrchestraID
+";
+            }
+
+            return Load(sql, d => InstantiateSeason(d, orchestra), new Dictionary<string, object> { { "ID", id.Value }, { "OrchestraID", orchestra?.ID } }).SingleOrDefault();
         }
 
         public IEnumerable<IDate> GetOrchestraDates(Guid membershipID)
         {
             const string sql = @"
-select	r.ID,
-		r.EventTypeID,
-		r.DateAt,
-		r.LocationAt
-from	Person_Orchestra po
-join	Season s
-	on	s.OrchestraID = po.OrchestraID
-join	Event r
-	on	r.SeasonID = s.ID
-join	Person_PersonRole ppr
-	on	ppr.PersonID = po.PersonID
-join	PersonRole pr
-	on	pr.ID = ppr.PersonRoleID
-	and	pr.OrchestraID = po.OrchestraID
-join	EventType et
-	on	et.ID = r.EventTypeID
-where	PersonalizedGUID = @PGuid
-	and	po.IsActive = 1
-	and	s.IsCurrent = 1
-	and	s.IsActive = 1
-	and	r.IsActive = 1
-	and	ppr.IsActive = 1
-	and	pr.IsActive = 1
-	and	et.IsActive = 1
-";
+        select	r.ID,
+        		r.EventTypeID,
+        		r.DateAt,
+        		r.LocationAt
+        from	Person_Orchestra po
+        join	Season s
+        	on	s.OrchestraID = po.OrchestraID
+        join	Event r
+        	on	r.SeasonID = s.ID
+        join	Person_PersonRole ppr
+        	on	ppr.PersonID = po.PersonID
+        join	PersonRole pr
+        	on	pr.ID = ppr.PersonRoleID
+        	and	pr.OrchestraID = po.OrchestraID
+        join	EventType et
+        	on	et.ID = r.EventTypeID
+        where	PersonalizedGUID = @PGuid
+        	and	po.IsActive = 1
+        	and	s.IsCurrent = 1
+        	and	s.IsActive = 1
+        	and	r.IsActive = 1
+        	and	ppr.IsActive = 1
+        	and	pr.IsActive = 1
+        	and	et.IsActive = 1
+        ";
 
             var dates = Load(sql, InstatiateDate, new Dictionary<string, object> { { "PGuid", membershipID } }).ToArray();
             return dates;
@@ -465,68 +1209,74 @@ where	s.IsCurrent = 1
 declare @t table (name varchar(20), value int)
 insert  @t
 values ('all', 1),
-       ('register', 2),
-       ('group', 3),
-       ('no', 4)
+        ('register', 2),
+        ('group', 3),
+        ('no', 4)
 
 select	top 1
         PersonID						=	p.ID,
-		PersonFirstName					=	p.FirstName,
-		PersonLastName					=	p.LastName,
-		PersonUniqueID					=	p.UniqueID,
-		PersonCanEditOthers             =   isnull(json_value(r.Parameters, '$.canEditOthers'), 'no'),
-		InstrumentID,
-		InstrumentName					=	i.Name,
-		InstrumentOrder					=	i.[Order],
-		InstrumentRegisterName			=	ir.Name,
-		InstrumentRegisterOrder			=	ir.[Order],
-		InstrumentGroupName				=	ig.Name,
-		InstrumentGroupOrder			=	ig.[Order],
-		OrchestraID						=	o.ID,
-		OrchestraName					=	o.Name,
-		OrchestraUniqueID				=	o.UniqueID
+        PersonFirstName					=	p.FirstName,
+        PersonLastName					=	p.LastName,
+        PersonUniqueID					=	p.UniqueID,
+        PersonCanEditOthers             =   isnull(json_value(r.Parameters, '$.canEditOthers'), 'no'),
+        InstrumentID,
+        InstrumentName					=	i.Name,
+        InstrumentOrder					=	i.[Order],
+        InstrumentRegisterName			=	ir.Name,
+        InstrumentRegisterOrder			=	ir.[Order],
+        InstrumentGroupName				=	ig.Name,
+        InstrumentGroupOrder			=	ig.[Order],
+        OrchestraID						=	o.ID,
+        OrchestraName					=	o.Name,
+        OrchestraUniqueID				=	o.UniqueID,
+        OrchestraColor1                 =   o.Color1
 from	Person_Orchestra po
 join	Person p
-	on	p.ID = po.PersonID
+    on	p.ID = po.PersonID
 join	Person_Season_Instrument psi
-	on	psi.PersonID = p.ID
+    on	psi.PersonID = p.ID
 join	Season s
-	on	s.ID = psi.SeasonID
-	and s.OrchestraID = po.OrchestraID
-	and s.IsCurrent = 1
+    on	s.ID = psi.SeasonID
+    and s.OrchestraID = po.OrchestraID
+    and s.IsCurrent = 1
 join	Instrument i
-	on	i.ID = psi.InstrumentID
+    on	i.ID = psi.InstrumentID
 join	InstrumentRegister ir
-	on	ir.ID = i.InstrumentRegisterID
+    on	ir.ID = i.InstrumentRegisterID
 join	InstrumentGroup ig
-	on	ig.ID = ir.InstrumentGroupID
-	and	ig.OrchestraID = po.OrchestraID
+    on	ig.ID = ir.InstrumentGroupID
+    and	ig.OrchestraID = po.OrchestraID
 join	Person_PersonRole pr
-	on	pr.PersonID = p.ID
+    on	pr.PersonID = p.ID
 join	PersonRole r
-	on	r.ID = pr.PersonRoleID
+    on	r.ID = pr.PersonRoleID
 join	@t t
-	on	t.name = isnull(json_value(r.Parameters, '$.canEditOthers'), 'no')
+    on	t.name = isnull(json_value(r.Parameters, '$.canEditOthers'), 'no')
 join	Orchestra o
-	on	o.ID = po.OrchestraID
+    on	o.ID = po.OrchestraID
 where	po.PersonalizedGUID = @PGuid
-	and r.OrchestraID = po.OrchestraID
-	and po.IsActive = 1
-	and p.IsActive = 1
-	and psi.IsActive = 1
-	and s.IsActive = 1
-	and i.IsActive = 1
-	and ir.IsActive = 1
-	and ig.IsActive = 1
-	and pr.IsActive = 1
-	and r.IsActive = 1
-	and o.IsActive = 1
+    and r.OrchestraID = po.OrchestraID
+    and po.IsActive = 1
+    and p.IsActive = 1
+    and psi.IsActive = 1
+    and s.IsActive = 1
+    and i.IsActive = 1
+    and ir.IsActive = 1
+    and ig.IsActive = 1
+    and pr.IsActive = 1
+    and r.IsActive = 1
+    and o.IsActive = 1
 order	by	t.value
 ";
 
+            var attendenceOptions = LoadAttencenceOptions().ToArray();
+
             var raw = Load(
                 sql,
-                d => new Tuple<IPerson, IInstrument, IOrchestra>(InstantiatePerson(d, "Person"), InstantiateInstrument(d, "Instrument"), InstantiateOrchestra(d, "Orchestra")),
+                d => new Tuple<IPerson, IInstrument, IOrchestra>(
+                    GetPersonInfo(d.Get<string>("PersonUniqueID")).SingleOrDefault(),
+                    InstantiateInstrument(d, "Instrument"),
+                    InstantiateOrchestra(d, attendenceOptions.Where(ao => ao.OrchestraID == d.Get<int>("OrchestraID")), "Orchestra")),
                 new Dictionary<string, object> { { "PGuid", membershipID } })
                 .ToArray();
 
@@ -534,6 +1284,25 @@ order	by	t.value
                  .GroupBy(t => t.Item1.ID)
                  .Select(g => new PersonInstrument(raw.First(r => r.Item1.ID == g.Key).Item1, g.Select(t => t.Item2), raw.First(r => r.Item1.ID == g.Key).Item3))
                  .SingleOrDefault();
+        }
+
+        public IEnumerable<IAttendenceOption> LoadAttencenceOptions()
+        {
+            const string sql = @"
+select	ao.ID,
+		ao.AltText,
+		ao.Value,
+		ao.OrchestraID,
+		ao.ColorLight,
+		ao.ColorDark,
+		ao.SymbolName,
+		ao.Comment,
+		ao.IsMandatory,
+		ao.[Order]
+from	AttendenceOption ao
+where	IsActive = 1
+";
+            return Load(sql, InstantiateAttendenceOption).ToArray();
         }
 
         public IEnumerable<IPersonInstrument> GetPersonInstruments(IEnumerable<Guid> membershipIDs)
@@ -555,9 +1324,9 @@ declare @groupID     int
 declare @t table (name varchar(20), value int)
 insert  @t
 values ('all', 1),
-       ('register', 2),
-       ('group', 3),
-       ('no', 4)
+        ('register', 2),
+        ('group', 3),
+        ('no', 4)
 
 select  top 1
         @seesOthers  =  json_value(pr.Parameters, '$.seesOthers'),
@@ -577,7 +1346,7 @@ join    Instrument i
     on  i.ID = psi.InstrumentID
 join    InstrumentRegister ir
     on  ir.ID = i.InstrumentRegisterID
-join    Season s
+join    vSeason s
     on  s.ID = psi.SeasonID
     and s.OrchestraID = po.OrchestraID
 join    @t t
@@ -613,13 +1382,14 @@ select  PersonID                =   p.ID,
         InstrumentGroupOrder    =   ig.[Order],
         OrchestraID             =   o.ID,
         OrchestraName           =   o.Name,
-        OrchestraUniqueID       =   o.UniqueID
+        OrchestraUniqueID       =   o.UniqueID,
+        OrchestraColor1         =   o.Color1
 from    Person_Orchestra po
 join    Person p
     on  p.ID = po.PersonID
 join    Person_Season_Instrument psi
     on  psi.PersonID = po.PersonID
-join    Season s
+join    vSeason s
     on  s.ID = psi.SeasonID
     and s.OrchestraID = po.OrchestraID
 join    Instrument i
@@ -654,11 +1424,19 @@ where   po.OrchestraID = @orchestraID
     and pr.IsActive = 1
     and r.IsActive = 1
     and o.IsActive = 1
-";
+        ";
 
+            var attendenceOptions = LoadAttencenceOptions().ToArray();
             var raw = Load(
                 sql,
-                d => new Tuple<IPerson, IInstrument, IOrchestra>(InstantiatePerson(d, "Person"), InstantiateInstrument(d, "Instrument"), InstantiateOrchestra(d, "Orchestra")),
+                d =>
+                {
+                    IPerson person = GetPersonInfo(d.Get<string>("PersonUniqueID")).Single(p => p.ID == d.Get<int>("PersonID"));
+                    return new Tuple<IPerson, IInstrument, IOrchestra>(
+                                        person,
+                                        InstantiateInstrument(d, "Instrument"),
+                                        InstantiateOrchestra(d, attendenceOptions.Where(ao => ao.OrchestraID == d.Get<int>("OrchestraID")), "Orchestra"));
+                },
                 new Dictionary<string, object> { { "PGuid", membershipID } })
                 .ToArray();
 
@@ -722,7 +1500,18 @@ select	@id
             throw new NotImplementedException();
         }
 
-        private IEventType LoadEventType(int id)
+        public IOrchestraColors GetOrchestraColors(int orchestraID)
+        {
+            const string sql = @"
+select  o.Color1
+from    Orchestra o
+where   o.ID = @ID;
+";
+
+            return new OrchestraColors(LoadScalar<string>(sql, new Dictionary<string, object> { { "ID", orchestraID } }));
+        }
+
+        private EventType LoadEventType(int id)
         {
             const string sql = @"
 select	ID,
@@ -733,14 +1522,14 @@ where	ID = @ID
             return Load(sql, InstantiateEventType, new Dictionary<string, object> { { "ID", id } }).SingleOrDefault();
         }
 
-        private static Person InstantiatePerson(IDataCollection d, string identifiersPrefix = "")
+        private static Person InstantiatePerson(IDataCollection d, string identifiersPrefix = "", IEnumerable<IMembership> memberships = null)
         {
             return new Person(
                 d.Get<int>($"{identifiersPrefix}ID"),
                 d.Get<Guid>($"{identifiersPrefix}UniqueID"),
                 d.Get<string>($"{identifiersPrefix}FirstName"),
                 d.Get<string>($"{identifiersPrefix}LastName"),
-                d.Get<CanEditOthers>($"{identifiersPrefix}CanEditOthers"));
+                memberships);
         }
 
         private IDate InstatiateDate(IDataCollection d)
@@ -753,14 +1542,14 @@ where	ID = @ID
                 LoadEventType(eventTypeID));
         }
 
-        private static IEventType InstantiateEventType(IDataCollection d)
+        private static EventType InstantiateEventType(IDataCollection d)
         {
             return new EventType(
                 d.Get<int>("ID"),
                 d.Get<string>("Name"));
         }
 
-        private static IPersonEvent InstantiateAttendence(IDataCollection d)
+        private static PersonEvent InstantiateAttendence(IDataCollection d)
         {
             return new PersonEvent(
                 d.Get<int>("PersonID"),
@@ -780,12 +1569,50 @@ where	ID = @ID
                 d.Get<int>($"{identifiersPrefix}GroupOrder"));
         }
 
-        private static IOrchestra InstantiateOrchestra(IDataCollection d, string prefix)
+        private static Orchestra InstantiateOrchestra(IDataCollection d, IEnumerable<IAttendenceOption> attendenceOptions, string identifiersPrefix = "")
         {
             return new Orchestra(
-                d.Get<int>($"{prefix}ID"),
-                d.Get<Guid>($"{prefix}UniqueID"),
-                d.Get<string>($"{prefix}Name"));
+                d.Get<int>($"{identifiersPrefix}ID"),
+                d.Get<Guid>($"{identifiersPrefix}UniqueID"),
+                d.Get<string>($"{identifiersPrefix}Name"),
+                d.Get<string>($"{identifiersPrefix}Color1"),
+                attendenceOptions);
+        }
+
+        private static Role InstantiateRole(IDataCollection d)
+        {
+            return new Role(
+                d.Get<int>("ID"),
+                d.Get<string>("Name"),
+                d.Get<string>("Parameters"));
+        }
+
+        private static Season InstantiateSeason(IDataCollection d, IOrchestra orchestra)
+        {
+            return new Season(
+                d.Get<int>("ID"),
+                d.Get<string>("Caption"),
+                d.Get<DateTime>("StartDate"),
+                d.Get<DateTime>("EndDate"),
+                orchestra);
+        }
+
+        private static IAttendenceOption InstantiateAttendenceOption(IDataCollection d)
+        {
+            var valueString = d.Get<string>("Value");
+            IsPresent? value = valueString.IsNullOrEmpty() ? null : d.Get<IsPresent>("Value");
+            return new AttendenceOption(
+                d.Get<int>("ID"),
+                d.Get<string>("AltText"),
+                value,
+                d.Get<int>("OrchestraID"),
+                d.Get<string>("ColorLight"),
+                d.Get<string>("ColorDark"),
+                d.Get<string>("SymbolName"),
+                d.Get<string>("Comment"),
+                d.Get<bool>("IsMandatory"),
+                d.Get<int>("Order"),
+                value != null);
         }
     }
 }

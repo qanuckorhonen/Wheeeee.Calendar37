@@ -6,11 +6,11 @@
 }
 @Html.Raw(tableHtml)
 <script>
-    function setTo(setTo, personID, dateID, id) {
+    function setTo(setTo, personID, dateID, orchestraId, id, index) {
             fetch(`/ShowRehearsels/SetTo`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ setTo, personID, dateID })
+                body: JSON.stringify({ setTo, personID, dateID, orchestraId, index })
             })
             .then(response => response.json())
             .then(data => {

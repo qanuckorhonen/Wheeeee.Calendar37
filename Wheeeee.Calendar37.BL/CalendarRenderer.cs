@@ -3,6 +3,7 @@ using Wheeeee.Calendar37.Core.Interfaces;
 using Wheeeee.Core;
 using Wheeeee.Core.Extensions;
 
+
 namespace Wheeeee.Calendar37.BL
 {
     public static class CalendarRenderer
@@ -20,9 +21,9 @@ namespace Wheeeee.Calendar37.BL
 ";
         }
 
-        public static string GetAttendenceHtml(IsPresent? isPresent, bool canEdit, bool isOwn, int personID, int dateID)
+        public static string GetAttendenceHtml(int index, IsPresent? isPresent, bool canEdit, bool isOwn, int personID, int dateID, int orchestraID, IEnumerable<IAttendenceOption> attendenceOptions, IOrchestraColors orchestraColors)
         {
-            var backgroundColor = GetCellBackgroundColor(isPresent, canEdit, isOwn);
+            var backgroundColor = GetCellBackgroundColor(isPresent, canEdit, isOwn, orchestraColors, index);
             if (!canEdit)
             {
                 return $"<td style=\"{backgroundColor}\">&nbsp;</td>";
@@ -30,43 +31,27 @@ namespace Wheeeee.Calendar37.BL
 
             var id = $"att_{personID}_{dateID}";
 
-            string colorYes, colorNo, colorMaybe, colorLater;
-            string filledYes, filledNo, filledMaybe, filledLater;
+            var content = attendenceOptions
+                   .OrderBy(ao => ao.Order)
+                   .Select(ao =>
+                   {
+                       var filled = ao.CanBeFilled && isPresent.HasValue && ao.Value == isPresent.Value ? "-fill" : string.Empty;
+                       var color = isPresent.HasValue
+                       ? ao.ColorLight
+                       : ao.Value.HasValue
+                            ? ao.ColorDark
+                            : backgroundColor;
 
-            if (isPresent.HasValue)
-            {
-                colorYes = "C0FFC0";
-                colorNo = "FFC0C0";
-                colorMaybe = "C0C0FF";
-                colorLater = "FFFFC0";
+                       return $@"<i class=""bi {ao.SymbolName}{filled}"" style=""color: #{color};"" {GetOnClick(isPresent, canEdit, ao.Value, personID, dateID, orchestraID, id, index)}></i>";
+                   })
+                   .Join("&nbsp;");
 
-                filledYes = isPresent.Value == IsPresent.Yes ? "-fill" : string.Empty;
-                filledNo = isPresent.Value == IsPresent.No ? "-fill" : string.Empty;
-                filledMaybe = isPresent.Value == IsPresent.Maybe ? "-fill" : string.Empty;
-                filledLater = isPresent.Value == IsPresent.Later ? "-fill" : string.Empty;
-            }
-            else
-            {
-                colorYes = "008000";
-                colorNo = "800000";
-                colorMaybe = "000080";
-                colorLater = "808000";
-
-                filledYes = filledNo = filledMaybe = filledLater = string.Empty;
-            }
-
-            var content = $@"&nbsp;
-<i class=""bi bi-check-circle{filledYes}"" style=""color: #{colorYes};"" {GetOnClick(isPresent, canEdit, IsPresent.Yes, personID, dateID, id)}></i>
-<i class=""bi bi-x-circle{filledNo}"" style=""color: #{colorNo};"" {GetOnClick(isPresent, canEdit, IsPresent.No, personID, dateID, id)}></i>
-<i class=""bi bi-question-circle{filledMaybe}"" style=""color: #{colorMaybe};"" {GetOnClick(isPresent, canEdit, IsPresent.Maybe, personID, dateID, id)}></i>
-<i class=""bi bi-arrow-right-circle{filledLater}"" style=""color: #{colorLater};"" {GetOnClick(isPresent, canEdit, IsPresent.Later, personID, dateID, id)}></i>
-<i class=""bi bi-circle"" style=""color: #{(isOwn ? "E0E0E0" : "FFFFFF")};"" {GetOnClick(isPresent, canEdit, null, personID, dateID, id)}></i>
-&nbsp;
-".Replace("\r\n", "&nbsp;")
-                .SurroundWith($@"<span id=""{id}"">", "</span>");
+            content = content
+                .Replace("\r\n", "&nbsp;")
+                .SurroundWith($@"<span id=""{id}"">&nbsp;", "&nbsp;</span>");
 
             return (content ?? string.Empty)
-                .SurroundWith($"<td align=\"center\" style=\"{backgroundColor}\">", "</td>");
+                .SurroundWith($@"<td align=""center"" style=""{backgroundColor}; white-space: nowrap;"">", "</td>");
         }
 
         private static string RenderWeekRow(IEnumerable<IDatesByWeek> datesByWeek)
@@ -79,7 +64,7 @@ namespace Wheeeee.Calendar37.BL
                         .Select(d => d.Date.DateAt.Date)
                         .Distinct()
                         .Count();
-                    return $"<td colspan=\"{count}\" style=\"text-align:center;border-left: 1px solid black; position: sticky; top: 0; background: white; z-index: 1;\" >KW {x.Week} {x.Year.ToString().Right(2)}</td>";
+                    return $"<td colspan=\"{count}\" style=\"text-align:center;  border-left: 1px solid black; position: sticky; top: 0; background: white; z-index: 1;\" >KW {x.Week}</td>";
                 })
                 .Join()
                 + "</tr>";
@@ -91,7 +76,7 @@ namespace Wheeeee.Calendar37.BL
             {
                 return "<tr><td/><td/><td/>" +
                     CalendarCalculator.GetDates(datesByWeek)
-                    .Select(d => d.ToString("d").SurroundWith($"<th style=\"text-align:center;border-left: 1px solid black; position: sticky; top: 0; background: white; z-index: 2; color:#{(d >= DateTime.Today ? "000000" : "D0D0D0")}\">", "</th>"))
+                    .Select(d => d.ToString("d").SurroundWith("&nbsp;").SurroundWith($"<th style=\"text-align:center; white-space: nowrap; border-left: 1px solid black; position: sticky; top: 0; background: white; z-index: 2; color:#{(d >= DateTime.Today ? "000000" : "D0D0D0")}\">", "</th>"))
                     .Join()
                     + "</tr>";
             }
@@ -105,7 +90,7 @@ namespace Wheeeee.Calendar37.BL
             var myInstrumentGroupNames = personInstrument.Instruments.Select(ii => ii.GroupName).ToArray();
 
             int rowCount = opis.Length + 1;
-            return RenderPersonAttendendanceRow(personInstrument, datesByWeek, atts, orchestra, true, true, opis.Length == 0, true)
+            return RenderPersonAttendendanceRow(personInstrument, datesByWeek, atts, orchestra, true, true, opis.Length == 0, true, 1)
                 .Replace("[!XXX]", rowCount.ToString()) + $@"
 {opis
     .OrderBy(opi => opi.Instruments.FirstOrDefault()?.GroupOrder)
@@ -115,7 +100,7 @@ namespace Wheeeee.Calendar37.BL
     .Select((opi, index) =>
     {
         bool canEdit = false;
-        switch (personInstrument.Person.CanEditOthers)
+        switch (personInstrument.Person.Memberships.Single(m => m.Orchestra.UniqueID == orchestra.UniqueID).CanEditOthers)
         {
             case CanEditOthers.all:
                 canEdit = true;
@@ -130,17 +115,17 @@ namespace Wheeeee.Calendar37.BL
                 break;
         }
 
-        return RenderPersonAttendendanceRow(opi, datesByWeek, atts, orchestra, canEdit, false, index == opis.Length - 1, false);
+        return RenderPersonAttendendanceRow(opi, datesByWeek, atts, orchestra, canEdit, false, index == opis.Length - 1, false, index + 1);
     }).Join()}
 ";
         }
 
-        private static string RenderPersonAttendendanceRow(IPersonInstrument personInstrument, IEnumerable<IDatesByWeek> datesByWeek, IEnumerable<IPersonEvent> atts, IOrchestra orchestra, bool canEdit, bool isFirstRow, bool isLastRow, bool isOwn)
+        private static string RenderPersonAttendendanceRow(IPersonInstrument personInstrument, IEnumerable<IDatesByWeek> datesByWeek, IEnumerable<IPersonEvent> atts, IOrchestra orchestra, bool canEdit, bool isFirstRow, bool isLastRow, bool isOwn, int index)
         {
-            return @$"<tr style=""{(isFirstRow ? "border-top: 2px solid black;" : string.Empty)}{(isLastRow ? "border-bottom: 1px solid black;" : string.Empty)} position: sticky;left: 0;z-index: 1;background: white;""
->{(isFirstRow
-                    ? @$"<td rowspan=""[!XXX]"" style=""position: sticky;left: 0;z-index: 1;background: white;""><span style=""writing-mode: sideways-lr; white-space: nowrap;"">{orchestra.Name.Replace(" ", "&nbsp;")}</span>"
-                    : string.Empty)}<th style=""position: sticky;left: 0;z-index: 1;background: white;"">{personInstrument.Person.FirstName}</th><td>({personInstrument.Instruments.Select(i => i.Name).Distinct().OrderBy(n => n).Join(", ")})</td>" +
+            string backgroundColor = GetCellBackgroundColor(null, false, isOwn, orchestra.Colors, index);
+            return @$"<tr style=""{(isFirstRow ? "border-top: 2px solid black;" : string.Empty)}{(isLastRow ? "border-bottom: 1px solid black;" : string.Empty)} position: sticky;left: 0;z-index: 1;background: white;"">{(isFirstRow
+                    ? @$"<td rowspan=""[!XXX]"" style=""position: sticky;left: 0;z-index: 1;background: #{orchestra.Colors.ColorHeaderHtml};""><span style=""writing-mode: sideways-lr; white-space: nowrap;"">{orchestra.Name.Replace(" ", "&nbsp;")}</span>"
+                    : string.Empty)}<th style=""position: sticky;left: 0;z-index: 1;{backgroundColor}; white-space: nowrap;"">{personInstrument.Person.FirstName}</th><td style=""white-space: nowrap;{backgroundColor}"">({personInstrument.Instruments.Select(i => i.Name).Distinct().OrderBy(n => n).Join(", ")})</td>" +
                             datesByWeek.SelectMany(x => x.Dates.Select(d => d.Date.DateAt.Date))
                                 .Distinct()
                                 .OrderBy(d => d)
@@ -154,7 +139,8 @@ namespace Wheeeee.Calendar37.BL
 
                                     if (dates.Length == 0)
                                     {
-                                        return "<td>&nbsp;</td>";
+                                        var backgroundColor = GetCellBackgroundColor(null, canEdit, isOwn, orchestra.Colors, index);
+                                        return $"<td style=\"{backgroundColor}\">&nbsp;</td>";
                                     }
 
                                     var date = dates[0];
@@ -162,17 +148,21 @@ namespace Wheeeee.Calendar37.BL
                                     var attendence = atts.FirstOrDefault(x => x.EventID == date.Date.ID && x.PersonID == personInstrument.Person.ID);
                                     var canEditThis = canEdit && date.Date.DateAt.Date >= DateTime.Today;
 
-                                    return GetAttendenceHtml(attendence?.IsPresent, canEditThis, isOwn, personInstrument.Person.ID, date.Date.ID);
+                                    return GetAttendenceHtml(index, attendence?.IsPresent, canEditThis, isOwn, personInstrument.Person.ID, date.Date.ID, orchestra.ID, orchestra.AttendenceOptions, orchestra.Colors);
                                 })
                                 .Join()
                                 + "</tr>";
         }
 
-        private static string GetCellBackgroundColor(IsPresent? isPresent, bool canEditThis, bool isOwn)
+        private static string GetCellBackgroundColor(IsPresent? isPresent, bool canEditThis, bool isOwn, IOrchestraColors orchestraColors, int index)
         {
             if (!isPresent.HasValue)
             {
-                return isOwn ? $"background-color: #E0E0E0;" : string.Empty;
+                return isOwn
+                    ? $"background-color: #{orchestraColors.ColorHeaderHtml};"
+                    : index % 2 == 0
+                        ? $"background-color: #{orchestraColors.RowColor0Html};"
+                        : $"background-color: #{orchestraColors.RowColor1Html};";
             }
 
             return isPresent switch
@@ -181,37 +171,18 @@ namespace Wheeeee.Calendar37.BL
                 IsPresent.No => $"background-color: #{(canEditThis ? "800000" : "FFC0C0")};",
                 IsPresent.Maybe => $"background-color: #{(canEditThis ? "000080" : "C0C0FF")};",
                 IsPresent.Later => $"background-color: #{(canEditThis ? "808000" : "FFFFC0")};",
-                _ => isOwn ? $"background-color: #{(canEditThis ? "C0C0C0" : "E0E0E0")};" : string.Empty
+                _ => throw new NotImplementedException(),
             };
         }
 
-        private static string GetOnClick(IsPresent? isPresent, bool canEdit, IsPresent? setTo, int personID, int dateID, string id)
+        private static string GetOnClick(IsPresent? isPresent, bool canEdit, IsPresent? setTo, int personID, int dateID, int orchestraID, string id, int index)
         {
             if (isPresent.HasValue && isPresent.Value == setTo || !canEdit || !isPresent.HasValue && setTo == null)
             {
                 return string.Empty;
             }
 
-            return $"onclick=\"setTo('{setTo}', {personID}, {dateID}, '{id}');\"";
-        }
-
-        private static string? GetAttendenceString(IsPresent? isPresent)
-        {
-            switch (isPresent)
-            {
-                case null:
-                    return string.Empty;
-                case IsPresent.No:
-                    return "nein";
-                case IsPresent.Yes:
-                    return "ja";
-                case IsPresent.Later:
-                    return "später";
-                case IsPresent.Maybe:
-                    return "vielleicht";
-                default:
-                    return "??";
-            }
+            return $"onclick=\"setTo('{setTo}', {personID}, {dateID}, {orchestraID}, '{id}', {index});\"";
         }
     }
 }

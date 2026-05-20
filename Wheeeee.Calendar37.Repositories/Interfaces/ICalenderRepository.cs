@@ -8,9 +8,10 @@ namespace Wheeeee.Calendar37.Repositories.Interfaces
     public interface ICalenderRepository
     {
         IEnumerable<IMembership> GetMembershipsByUniqueIDs(IEnumerable<Guid> membershipIDs);
-        IMembership GetMembershipByUniqueID(Guid guids);
-        IPerson GetPersonByUniqueID(string personID);
-        IEnumerable<IDate> GetOrchestraDates(Guid membershipID);
+        IMembership GetMembershipByUniqueID(Guid guid);
+        //IPerson GetPersonByUniqueID(string personID);
+        IEnumerable<IPerson> GetPersonInfo(string personUniqueIDs);
+        //IEnumerable<IDate> GetOrchestraDates(Guid membershipID);
         IEnumerable<IOrchestraDate> GetOrchestraDates(IEnumerable<Guid> membershipIDs);
         IEnumerable<IPersonEvent> GetAttendences(Guid membershipID);
         IEnumerable<IPersonEvent> GetAttendences(IEnumerable<Guid> membershipIDs);
@@ -19,6 +20,8 @@ namespace Wheeeee.Calendar37.Repositories.Interfaces
         IEnumerable<IPersonInstrument> GetOtherPersonInstruments(Guid membershipID);
         IEnumerable<IPersonInstrument> GetOtherPersonInstruments(IEnumerable<Guid> membershipIDs);
         IEditableOrchestra GetEditableOrchestra(Guid orchestraGuid);
+        IEnumerable<IAttendenceOption> LoadAttencenceOptions();
+        IOrchestraColors GetOrchestraColors(int orchestraID);
 
         void UpdateAttendence(int personID, int dateID, IsPresent? isPresent);
     }
