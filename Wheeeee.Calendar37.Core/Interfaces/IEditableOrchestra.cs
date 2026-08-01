@@ -8,6 +8,8 @@
         string Location { get; }
 
         IEnumerable<IEditablePerson> Persons { get; }
+        IEnumerable<IPersonRole> Roles { get; }
+        IEnumerable<IInstrument> Instruments { get; }
         IOrchestraColors Colors { get; }
         IEnumerable<IAttendenceOption> AttendenceOptions { get; }
         IEnumerable<ISeason> Seasons { get; }

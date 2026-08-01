@@ -1,0 +1,106 @@
+@using Wheeeee.Calendar37.Core.Interfaces
+@model IEditableOrchestra
+
+@using System.Linq
+@{
+    var seasons = Model.Seasons?.ToArray() ?? Array.Empty<ISeason>();
+    // sort alphanumerically by caption
+    var seasonsSorted = seasons.OrderBy(s => s.SeasonCaption, System.StringComparer.OrdinalIgnoreCase).ToArray();
+    var currentSeason = seasonsSorted.FirstOrDefault(s => s.IsCurrent) ?? seasonsSorted.FirstOrDefault();
+    var currentSeasonId = currentSeason?.SeasonID ?? 0;
+
+    // Load initial participants for current season
+    var repo = (Wheeeee.Calendar37.Repositories.Interfaces.ICalenderRepository)ViewContext.HttpContext.RequestServices.GetService(typeof(Wheeeee.Calendar37.Repositories.Interfaces.ICalenderRepository));
+    var participants = currentSeasonId == 0 ? Array.Empty<Wheeeee.Calendar37.Core.Interfaces.IEditablePerson>() : repo?.GetParticipants(new Guid(Model.Id.ToString()), currentSeasonId) ?? Array.Empty<Wheeeee.Calendar37.Core.Interfaces.IEditablePerson>();
+    var rolesJson = Newtonsoft.Json.JsonConvert.SerializeObject(Model.Roles == null ? Array.Empty<object>() : Model.Roles.Select(r => new { id = r.ID, name = r.Name }).ToArray());
+}
+
+<fieldset>
+    <legend>Mitwirkende</legend>
+
+    <p class="muted">Personen und ihre Rollenzuordnungen für die gewählte Saison.</p>
+
+    <div class="season-control">
+        <label for="seasonSelect">Saison:</label>
+        @{ 
+            var sb = new System.Text.StringBuilder();
+            foreach (var s in seasonsSorted) {
+                sb.Append("<option value=\"").Append(s.SeasonID).Append("\"");
+                if (s.SeasonID == currentSeasonId) sb.Append(" class=\"current\"");
+                sb.Append(s.IsCurrent ? " selected" : "");
+                sb.Append(">").Append(System.Net.WebUtility.HtmlEncode(s.SeasonCaption)).Append("</option>");
+            }
+            var optionsHtml = sb.ToString();
+        }
+        <select id="seasonSelect">@Html.Raw(optionsHtml)</select>
+    </div>
+
+    <div id="participantsContainer">
+        <table class="participants-table">
+            <thead>
+                <tr>
+                    <th>Nr.</th>
+                    <th>Vorname</th>
+                    <th>Nachname</th>
+                    <th>Rollen</th>
+                </tr>
+            </thead>
+            <tbody>
+                @{ int idx = 1; foreach (var p in participants) { <text>
+                    <tr>
+                        <td>@(idx)</td>
+                        <td>@p.FirstName</td>
+                        <td>@p.LastName</td>
+                        <td>
+                            @foreach (var r in Model.Roles ?? Enumerable.Empty<IPersonRole>())
+                            {
+                                if (p.RolesIDs != null && p.RolesIDs.Contains(r.ID))
+                                {
+                                    <span class="role">@r.Name</span>
+                                }
+                            }
+                        </td>
+                    </tr>
+                </text>; idx++; } }
+            </tbody>
+        </table>
+    </div>
+</fieldset>
+
+<style>
+    .season-control { margin-bottom: .5rem; display:flex; gap:.5rem; align-items:center; }
+    /* try to emphasize current season option; note: option styling is browser-limited */
+    .season-control select option.current { font-weight:700; }
+    .muted { color:#666; font-size:.9rem; margin-bottom:.5rem; }
+</style>
+
+<script>
+    (function(){
+        const select = document.getElementById('seasonSelect');
+        const container = document.getElementById('participantsContainer');
+        const orchestraId = '@Model.Id';
+
+        const roles = @Html.Raw(rolesJson);
+
+        select.addEventListener('change', () => {
+            const seasonId = select.value;
+            // update current-season label
+            const currentSpan = document.querySelector('.current-season strong');
+            if (currentSpan) currentSpan.textContent = select.options[select.selectedIndex].text;
+
+            fetch(`/Admin/GetParticipants?o=${encodeURIComponent(orchestraId)}&s=${encodeURIComponent(seasonId)}`)
+                .then(r => r.json())
+                .then(data => {
+                    // build table rows
+                    const rows = data.map((p, idx) => {
+                        const roleSpans = roles.filter(r => (p.Roles || []).includes(r.id)).map(r => `<span class="role">${escapeHtml(r.name)}</span>`).join(' ');
+                        return `<tr><td>${idx+1}</td><td>${escapeHtml(p.FirstName)}</td><td>${escapeHtml(p.LastName)}</td><td>${roleSpans}</td></tr>`;
+                    }).join('');
+                    container.innerHTML = `<table class="participants-table"><thead><tr><th>Nr.</th><th>Vorname</th><th>Nachname</th><th>Rollen</th></tr></thead><tbody>${rows}</tbody></table>`;
+                })
+                .catch(e => console.error(e));
+        });
+
+        function escapeHtml(s){ return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+    })();
+</script>

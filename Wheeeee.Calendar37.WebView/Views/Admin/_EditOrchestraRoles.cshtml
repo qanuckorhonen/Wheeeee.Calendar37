@@ -1,0 +1,144 @@
+@using Wheeeee.Calendar37.Core.Interfaces
+@model IEnumerable<IPersonRole>
+
+<fieldset>
+    <legend>Rollen</legend>
+
+    <p class="muted">Bearbeite Rollen, die Personen zugewiesen werden können.</p>
+
+    <div class="roles-toolbar">
+        <button type="button" id="addRoleBtn">Neue Rolle hinzufügen</button>
+    </div>
+
+    <div id="deletedRolesContainer"></div>
+
+    <table class="roles-table">
+        <thead>
+            <tr>
+                <th>Nr.</th>
+                <th>Name</th>
+                <th>Parameter</th>
+                <th>Aktiv</th>
+                <th>Aktion</th>
+            </tr>
+        </thead>
+        <tbody>
+            @{ var roles = Model?.ToArray() ?? Array.Empty<IPersonRole>(); int rows = Math.Max(5, roles.Length + 2); }
+            @for (int i = 0; i < rows; i++)
+            {
+                var r = i < roles.Length ? roles[i] : null;
+                <tr>
+                    <td>
+                        <input type="hidden" name="Roles[@i].ID" value="@(r?.ID ?? 0)" />
+                        <span class="row-index">@(i + 1)</span>
+                    </td>
+                    <td>
+                        <input type="text" name="Roles[@i].Name" value="@(r?.Name ?? String.Empty)" class="input-medium role-name" />
+                    </td>
+                    <td>
+                        <input type="text" name="Roles[@i].Parameters" value="@(r?.Parameters ?? String.Empty)" class="input-large role-parameters" />
+                    </td>
+                    <td class="text-center">
+                        <input type="checkbox" disabled checked />
+                    </td>
+                    <td class="text-center">
+                        <button type="button" class="remove-role-btn">Entfernen</button>
+                    </td>
+                </tr>
+            }
+        </tbody>
+    </table>
+</fieldset>
+
+<style>
+    .roles-table { width:100%; border-collapse: collapse; }
+    .roles-table th, .roles-table td { padding: .3rem .5rem; border: 1px solid var(--border, #ddd); vertical-align: middle; }
+    .roles-table thead th { background: var(--muted, #fff); color: var(--text, #222); font-weight: 600; font-size: .9rem; }
+    .input-medium { width: 14rem; }
+    .input-large { width: 24rem; }
+    .muted { color: #666; font-size: .9rem; margin-bottom: .5rem; }
+    .roles-toolbar { margin-bottom: .5rem; }
+    .roles-toolbar button { padding: .25rem .5rem; }
+    .remove-role-btn { padding: .15rem .4rem; }
+</style>
+
+<script>
+    (function(){
+        const tbody = document.querySelector('.roles-table tbody');
+        const addBtn = document.getElementById('addRoleBtn');
+        const deletedContainer = document.getElementById('deletedRolesContainer');
+
+        function reindex() {
+            const rows = Array.from(tbody.querySelectorAll('tr'));
+            rows.forEach((tr, idx) => {
+                const indexSpan = tr.querySelector('.row-index');
+                if (indexSpan) indexSpan.textContent = (idx + 1).toString();
+
+                const idInput = tr.querySelector('input[type="hidden"][name$=".ID"]');
+                if (idInput) idInput.name = `Roles[${idx}].ID`;
+
+                const nameInput = tr.querySelector('.role-name');
+                if (nameInput) nameInput.name = `Roles[${idx}].Name`;
+
+                const paramsInput = tr.querySelector('.role-parameters');
+                if (paramsInput) paramsInput.name = `Roles[${idx}].Parameters`;
+            });
+        }
+
+        function makeRow(id, name, parameters) {
+            const tr = document.createElement('tr');
+
+            tr.innerHTML = `
+                <td>
+                    <input type="hidden" name="Roles.0.ID" value="${id}" />
+                    <span class="row-index">0</span>
+                </td>
+                <td>
+                    <input type="text" name="Roles.0.Name" value="${escapeHtml(name)}" class="input-medium role-name" />
+                </td>
+                <td>
+                    <input type="text" name="Roles.0.Parameters" value="${escapeHtml(parameters)}" class="input-large role-parameters" />
+                </td>
+                <td class="text-center">
+                    <input type="checkbox" disabled checked />
+                </td>
+                <td class="text-center">
+                    <button type="button" class="remove-role-btn">Entfernen</button>
+                </td>
+            `;
+
+            tr.querySelector('.remove-role-btn').addEventListener('click', onRemove);
+            return tr;
+        }
+
+        function onRemove(e) {
+            const tr = e.target.closest('tr');
+            if (!tr) return;
+            const idInput = tr.querySelector('input[type="hidden"][name$=".ID"]');
+            const id = idInput ? parseInt(idInput.value || '0', 10) : 0;
+            if (id > 0) {
+                // record deleted existing role ids so server can process removals
+                const hidden = document.createElement('input');
+                hidden.type = 'hidden';
+                hidden.name = 'DeletedRoleIDs';
+                hidden.value = id.toString();
+                deletedContainer.appendChild(hidden);
+            }
+            tr.remove();
+            reindex();
+        }
+
+        function escapeHtml(s) {
+            return (s||'').replace(/&/g, '&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+        }
+
+        addBtn.addEventListener('click', () => {
+            const tr = makeRow(0, '', '');
+            tbody.appendChild(tr);
+            reindex();
+        });
+
+        // wire up existing remove buttons
+        document.querySelectorAll('.remove-role-btn').forEach(b => b.addEventListener('click', onRemove));
+    })();
+</script>

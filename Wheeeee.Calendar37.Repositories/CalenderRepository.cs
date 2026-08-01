@@ -1617,12 +1617,37 @@ order by s.StartDate desc
                 })
                 .ToArray();
 
+            var roles = GetRoles(o.Get<int>("ID")).ToArray();
+
+            // load instruments for this orchestra
+            const string instrumentsSql = @"
+select  i.ID            as InstrumentID,
+        i.Name          as InstrumentName,
+        i.[Order]       as InstrumentOrder,
+        ir.Name         as InstrumentRegisterName,
+        ir.[Order]      as InstrumentRegisterOrder,
+        ig.Name         as InstrumentGroupName,
+        ig.[Order]      as InstrumentGroupOrder
+from    Instrument i
+join    InstrumentRegister ir
+    on  ir.ID = i.InstrumentRegisterID
+join    InstrumentGroup ig
+    on  ig.ID = ir.InstrumentGroupID
+where   ig.OrchestraID = (select top 1 ID from Orchestra where UniqueID = @OrchestraId and IsActive = 1)
+    and i.IsActive = 1
+order by ig.[Order], ir.[Order], i.[Order]
+";
+
+            var instruments = Load(instrumentsSql, d => InstantiateInstrument(d, "Instrument"), new Dictionary<string, object> { { "OrchestraId", orchestraGuid } }).ToArray();
+
             return new EditableOrchestra(
                 o.Get<Guid>("UniqueID"),
                 o.Get<string>("Name"),
                 o.Get<string>("Description"),
                 o.Get<string>("Location"),
                 persons,
+                roles,
+                instruments,
                 colors,
                 attendenceOptions,
                 seasons);
@@ -1639,6 +1664,62 @@ where   o.ID = @ID;
             return new OrchestraColors(LoadScalar<string>(sql, new Dictionary<string, object> { { "ID", orchestraID } }));
         }
 
+        public IEnumerable<IPersonRole> GetRoles(int orchestraID)
+        {
+            const string sql = @"
+select  r.ID,
+        r.Name,
+        r.Parameters
+from    PersonRole r
+where   r.IsActive = 1
+    and r.OrchestraID = @OrchestraID
+order by r.Name
+";
+
+            return Load(sql, InstantiatePersonRole, new Dictionary<string, object> { { "OrchestraID", orchestraID } });
+        }
+
+        public IEnumerable<IEditablePerson> GetParticipants(Guid orchestraGuid, int seasonID)
+        {
+            const string sql = @"
+declare @OrchestraID int = (select top 1 ID from Orchestra where UniqueID = @OrchestraGuid and IsActive = 1);
+
+select  p.ID,
+        p.UniqueID,
+        p.FirstName,
+        p.LastName,
+        Roles = (
+            select string_agg(convert(varchar(max), pr.ID), '|')
+            from Person_PersonRole ppr2
+            join PersonRole pr on pr.ID = ppr2.PersonRoleID
+            where ppr2.PersonID = p.ID
+              and ppr2.IsActive = 1
+              and pr.IsActive = 1
+              and pr.OrchestraID = @OrchestraID
+        )
+from Person p
+join Person_Orchestra po on po.PersonID = p.ID and po.IsActive = 1
+where p.IsActive = 1
+  and (
+        exists(select 1 from Person_Season_Instrument psi where psi.PersonID = p.ID and psi.SeasonID = @SeasonID and psi.IsActive = 1)
+        or exists(select 1 from Person_PersonRole ppr3 join PersonRole r on r.ID = ppr3.PersonRoleID where ppr3.PersonID = p.ID and ppr3.IsActive = 1 and r.IsActive = 1 and r.OrchestraID = @OrchestraID)
+      )
+order by p.LastName, p.FirstName
+";
+
+            return Load(sql,
+                d =>
+                {
+                    var rolesString = d.Get<string>("Roles");
+                    var roles = string.IsNullOrEmpty(rolesString)
+                        ? Array.Empty<int>()
+                        : rolesString.Split('|').Where(s => !string.IsNullOrEmpty(s)).Select(int.Parse).ToArray();
+
+                    return (IEditablePerson)new EditablePerson(d.Get<string>("FirstName"), d.Get<string>("LastName"), roles);
+                },
+                new Dictionary<string, object> { { "OrchestraGuid", orchestraGuid }, { "SeasonID", seasonID } }).ToArray();
+        }
+
         private EventType LoadEventType(int id)
         {
             const string sql = @"
@@ -1648,6 +1729,15 @@ from	EventType
 where	ID = @ID
 ";
             return Load(sql, InstantiateEventType, new Dictionary<string, object> { { "ID", id } }).SingleOrDefault();
+        }
+
+        private static IPersonRole InstantiatePersonRole(IDataCollection d)
+        {
+            return new PersonRole(
+                d.Get<int>("ID"),
+                d.Get<string>("Name"),
+                d.Get<string>("Parameters")
+            );
         }
 
         private static Person InstantiatePerson(IDataCollection d, string identifiersPrefix = "", IEnumerable<IMembership> memberships = null)

@@ -23,6 +23,8 @@ namespace Wheeeee.Calendar37.Repositories.Interfaces
         IEditableOrchestra GetEditableOrchestra(Guid orchestraGuid);
         IEnumerable<IAttendenceOption> LoadAttencenceOptions();
         IOrchestraColors GetOrchestraColors(int orchestraID);
+        IEnumerable<IPersonRole> GetRoles(int orchestraID);
+        IEnumerable<IEditablePerson> GetParticipants(Guid orchestraGuid, int seasonID);
         void SaveEditableOrchestra(Guid orchestraGuid, IEnumerable<Wheeeee.Core.Interfaces.Collections.IDataCollection> seasons);
 
         void UpdateAttendence(int personID, int dateID, IsPresent? isPresent);

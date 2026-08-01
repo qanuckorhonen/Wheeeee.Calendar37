@@ -71,6 +71,21 @@ namespace Wheeeee.Calendar37.WebView.Controllers
             return PartialView("_EditOrchestra", model);
         }
 
+        public IActionResult GetParticipants(string o, int s)
+        {
+            Guid orchestraGuid = Guid.Parse(o);
+            var repo = (ICalenderRepository)Request.HttpContext.RequestServices.GetService(typeof(ICalenderRepository));
+            var participants = repo.GetParticipants(orchestraGuid, s)
+                .Select(p => new {
+                    FirstName = p.FirstName,
+                    LastName = p.LastName,
+                    Roles = p.RolesIDs ?? Array.Empty<int>()
+                })
+                .ToArray();
+
+            return Json(participants);
+        }
+
         [HttpPost]
         public IActionResult Save(string orchestraId)
         {

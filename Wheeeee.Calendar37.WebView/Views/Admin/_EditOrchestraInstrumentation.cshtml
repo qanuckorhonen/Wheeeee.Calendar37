@@ -1,0 +1,155 @@
+@using Wheeeee.Calendar37.Core.Interfaces
+@model IEnumerable<IInstrument>
+
+<fieldset>
+    <legend>Instrumentierung</legend>
+
+    <p class="muted">Instrumentengruppen, Register und Instrumente für das ausgewählte Orchester bearbeiten.</p>
+
+    <div class="instr-toolbar">
+        <button type="button" id="addGroupBtn">Neue Gruppe hinzufügen</button>
+    </div>
+
+    <div id="instrTree" class="instr-tree">
+        @{ var instruments = Model?.ToArray() ?? Array.Empty<IInstrument>();
+
+           // Build grouped structure and sort by group/register order values
+           var groups = instruments
+               .GroupBy(i => new { Name = i.GroupName, Order = i.GroupOrder })
+               .OrderBy(g => g.Key.Order)
+               .Select(g => new {
+                   Name = g.Key.Name,
+                   Order = g.Key.Order,
+                   Registers = g
+                       .GroupBy(i => new { Name = i.RegisterName, Order = i.RegisterOrder })
+                       .OrderBy(r => r.Key.Order)
+                       .Select(rg => new { Name = rg.Key.Name, Order = rg.Key.Order, Items = rg.OrderBy(i => i.Order).ToArray() })
+                       .ToArray()
+               })
+               .ToArray();
+        }
+
+        <div class="groups">
+            @for (int gi = 0; gi < groups.Length; gi++)
+            {
+                var g = groups[gi];
+                <div class="group" data-group-index="@gi">
+                    <div class="group-header">
+                        <strong>@g.Name</strong>
+                        <button type="button" class="add-register-btn">Neues Register</button>
+                        <button type="button" class="remove-group-btn">Entfernen</button>
+                    </div>
+                    <div class="registers">
+                        @for (int ri = 0; ri < g.Registers.Length; ri++)
+                        {
+                            var rg = g.Registers[ri];
+                            <div class="register" data-register-index="@ri">
+                                <div class="register-header">
+                                    <em>@rg.Name</em>
+                                    <button type="button" class="add-instrument-btn">Neues Instrument</button>
+                                    <button type="button" class="remove-register-btn">Entfernen</button>
+                                </div>
+                                <ul class="instruments-list">
+                                    @for (int ii = 0; ii < rg.Items.Length; ii++)
+                                    {
+                                        var inst = rg.Items[ii];
+                                        <li class="instrument" data-instrument-id="@inst.ID">
+                                            <span class="instrument-name">@inst.Name</span>
+                                            <button type="button" class="remove-instrument-btn">Entfernen</button>
+                                        </li>
+                                    }
+                                </ul>
+                            </div>
+                        }
+                    </div>
+                </div>
+            }
+        </div>
+    </div>
+
+    <input type="hidden" id="InstrumentsJson" name="InstrumentsJson" />
+</fieldset>
+
+<style>
+    .instr-tree { margin-top: .5rem; }
+    .group { border: 1px solid #ddd; padding: .5rem; margin-bottom: .5rem; }
+    .group-header { display:flex; gap:.5rem; align-items:center; }
+    .register { margin-left: 1rem; border-top: 1px dashed #eee; padding-top: .25rem; margin-top:.25rem; }
+    .register-header { display:flex; gap:.5rem; align-items:center; }
+    .instruments-list { list-style: none; padding-left: 0.5rem; }
+    .instruments-list li { display:flex; justify-content:space-between; padding:.1rem .2rem; }
+    .instr-toolbar { margin-bottom:.5rem; }
+</style>
+
+<script>
+    (function(){
+        const tree = document.getElementById('instrTree');
+        const addGroupBtn = document.getElementById('addGroupBtn');
+        const hiddenJson = document.getElementById('InstrumentsJson');
+
+        function serialize() {
+            const groups = Array.from(tree.querySelectorAll('.group')).map(g => {
+                const groupName = g.querySelector('.group-header strong')?.textContent || '';
+                const registers = Array.from(g.querySelectorAll('.register')).map(r => {
+                    const regName = r.querySelector('.register-header em')?.textContent || '';
+                    const instruments = Array.from(r.querySelectorAll('.instrument')).map(i => ({ id: parseInt(i.dataset.instrumentId||'0',10)||0, name: i.querySelector('.instrument-name')?.textContent || '' }));
+                    return { name: regName, instruments };
+                });
+                return { name: groupName, registers };
+            });
+            hiddenJson.value = JSON.stringify(groups);
+        }
+
+        function makeGroup(name) {
+            const gi = document.createElement('div');
+            gi.className = 'group';
+            gi.innerHTML = `<div class="group-header"><strong>${escapeHtml(name)}</strong> <button type="button" class="add-register-btn">Neues Register</button> <button type="button" class="remove-group-btn">Entfernen</button></div><div class="registers"></div>`;
+            gi.querySelector('.add-register-btn').addEventListener('click', () => {
+                const registers = gi.querySelector('.registers');
+                registers.appendChild(makeRegister('Neues Register'));
+                serialize();
+            });
+            gi.querySelector('.remove-group-btn').addEventListener('click', () => { gi.remove(); serialize(); });
+            return gi;
+        }
+
+        function makeRegister(name) {
+            const ri = document.createElement('div');
+            ri.className = 'register';
+            ri.innerHTML = `<div class="register-header"><em>${escapeHtml(name)}</em> <button type="button" class="add-instrument-btn">Neues Instrument</button> <button type="button" class="remove-register-btn">Entfernen</button></div><ul class="instruments-list"></ul>`;
+            ri.querySelector('.add-instrument-btn').addEventListener('click', () => {
+                ri.querySelector('.instruments-list').appendChild(makeInstrument(0, 'Neues Instrument'));
+                serialize();
+            });
+            ri.querySelector('.remove-register-btn').addEventListener('click', () => { ri.remove(); serialize(); });
+            return ri;
+        }
+
+        function makeInstrument(id, name) {
+            const li = document.createElement('li');
+            li.className = 'instrument';
+            li.dataset.instrumentId = id.toString();
+            li.innerHTML = `<span class="instrument-name">${escapeHtml(name)}</span> <button type="button" class="remove-instrument-btn">Entfernen</button>`;
+            li.querySelector('.remove-instrument-btn').addEventListener('click', (e) => { li.remove(); serialize(); });
+            return li;
+        }
+
+        function escapeHtml(s) { return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+
+        addGroupBtn.addEventListener('click', () => { document.querySelector('.groups').appendChild(makeGroup('Neue Gruppe')); serialize(); });
+
+        // wire up existing buttons
+        tree.querySelectorAll('.group').forEach(g => {
+            const addReg = g.querySelector('.add-register-btn'); if (addReg) addReg.addEventListener('click', () => { g.querySelector('.registers').appendChild(makeRegister('Neues Register')); serialize(); });
+            const remG = g.querySelector('.remove-group-btn'); if (remG) remG.addEventListener('click', () => { g.remove(); serialize(); });
+            g.querySelectorAll('.register').forEach(r => {
+                const addIns = r.querySelector('.add-instrument-btn'); if (addIns) addIns.addEventListener('click', () => { r.querySelector('.instruments-list').appendChild(makeInstrument(0,'Neues Instrument')); serialize(); });
+                const remR = r.querySelector('.remove-register-btn'); if (remR) remR.addEventListener('click', () => { r.remove(); serialize(); });
+                r.querySelectorAll('.instrument').forEach(i => { const remI = i.querySelector('.remove-instrument-btn'); if (remI) remI.addEventListener('click', () => { i.remove(); serialize(); }); });
+            });
+        });
+
+        // initial serialize
+        serialize();
+    })();
+</script>
