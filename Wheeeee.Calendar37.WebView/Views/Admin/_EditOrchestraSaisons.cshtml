@@ -1,0 +1,59 @@
+@using Wheeeee.Calendar37.Core.Interfaces
+@using System.Linq
+@model IEnumerable<ISeason>
+
+<fieldset>
+    <legend>Saisons</legend>
+
+    <p class="muted">Bearbeite Saisons. "Aktuell" wird automatisch berechnet und ist schreibgeschützt.</p>
+
+    <table class="attendence-options-table seasons-table">
+        <thead>
+            <tr>
+                <th>Nr.</th>
+                <th>Bezeichnung</th>
+                <th>Startdatum</th>
+                <th>Aktuell</th>
+                <th>Kommentar</th>
+                <th>Aktiv</th>
+            </tr>
+        </thead>
+        <tbody>
+            @{ var seasons = Model?.OrderByDescending(s => s.StartDate).ToArray() ?? Array.Empty<ISeason>(); int rows = Math.Max(5, seasons.Length + 2); }
+            @for (int i = 0; i < rows; i++)
+            {
+                var s = i < seasons.Length ? seasons[i] : null;
+                <tr>
+                    <td>
+                        <input type="hidden" name="Seasons[@i].ID" value="@(s?.SeasonID ?? 0)" />
+                        <span>@(i + 1)</span>
+                    </td>
+                    <td>
+                        <input type="text" name="Seasons[@i].Caption" value="@(s?.SeasonCaption ?? String.Empty)" class="input-medium" />
+                    </td>
+                    <td>
+                        <input type="date" name="Seasons[@i].StartDate" value="@(s?.StartDate?.ToString("yyyy-MM-dd") ?? String.Empty)" />
+                    </td>
+                    <td class="text-center">
+                        <input type="checkbox" disabled @(s != null && s.IsCurrent ? "checked" : "") />
+                    </td>
+                    <td>
+                        <input type="text" name="Seasons[@i].Comment" value="@(s?.Orchestra != null ? s?.Orchestra.ToString() : s?.SeasonCaption ?? String.Empty)" class="input-medium" />
+                    </td>
+                    <td class="text-center">
+                        <input type="hidden" name="Seasons[@i].IsActive" value="false" />
+                        <input type="checkbox" name="Seasons[@i].IsActive" value="true" @(s != null && s.IsCurrent == false && s?.Orchestra != null ? "checked" : (s != null && s.IsCurrent == false ? "checked" : (s != null && s.IsCurrent ? "" : ""))) />
+                    </td>
+                </tr>
+            }
+        </tbody>
+    </table>
+</fieldset>
+
+<style>
+    .seasons-table { width:100%; border-collapse: collapse; }
+    .seasons-table th, .seasons-table td { padding: .3rem .5rem; border: 1px solid var(--border, #ddd); vertical-align: middle; }
+    .seasons-table thead th { background: var(--muted, #fff); color: var(--text, #222); font-weight: 600; font-size: .9rem; }
+    .input-medium { width: 14rem; }
+    .muted { color: #666; font-size: .9rem; margin-bottom: .5rem; }
+</style>

@@ -20,6 +20,8 @@
         if (orchestraId) {
             $.get("/Admin/GetEditHtml?o=" + orchestraId, function (data) {
                 $("#editArea").html(data);
+                // Initialize any dynamic behaviors inside the loaded HTML (drag-and-drop, etc.)
+                try { if (window.initAttendenceOptionsDnD) window.initAttendenceOptionsDnD(document.getElementById('editArea')); } catch (err) { console.error(err); }
             }).fail(function() {
                 $("#editArea").html("<p>Failed to load.</p>");
             });
@@ -27,4 +29,69 @@
             $("#editArea").html("");
         }
     }
+</script>
+
+<script>
+    // Expose an initialization function so scripts embedded in HTML loaded via AJAX can be wired up.
+    window.initAttendenceOptionsDnD = function (rootEl) {
+        try {
+            var root = rootEl || document;
+            var tbody = root.querySelector && root.querySelector('.attendence-options-table tbody');
+            console.log('initAttendenceOptionsDnD called, tbody=', tbody);
+            if (!tbody) return;
+
+            // Copy of the pointer + DnD logic from the partial (kept minimal)
+            var dragRow = null, placeholder = null, ghost = null, pointerDragging = false;
+
+            function updateOrderFields() {
+                Array.from(tbody.querySelectorAll('tr')).forEach(function (row, idx) {
+                    var orderInput = row.querySelector('.order-field');
+                    if (orderInput) orderInput.value = idx;
+                    Array.from(row.querySelectorAll('[name]')).forEach(function (el) {
+                        el.name = el.name.replace(/\[\d+\]/, '[' + idx + ']');
+                    });
+                });
+            }
+
+            tbody.addEventListener('dragstart', function (e) {
+                var handle = e.target.closest('.drag-handle');
+                if (!handle) return;
+                dragRow = handle.closest('tr');
+                if (!dragRow) return;
+                try { e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', 'drag'); } catch (err) { }
+                dragRow.classList.add('dragging');
+            });
+
+            tbody.addEventListener('dragover', function (e) {
+                e.preventDefault();
+                var over = e.target.closest('tr');
+                if (!over || !dragRow || over === dragRow) return;
+                var rect = over.getBoundingClientRect();
+                var before = (e.clientY - rect.top) < (rect.height / 2);
+                if (before) tbody.insertBefore(dragRow, over);
+                else tbody.insertBefore(dragRow, over.nextSibling);
+                updateOrderFields();
+            });
+
+            tbody.addEventListener('drop', function (e) {
+                e.preventDefault();
+                if (dragRow) dragRow.classList.remove('dragging');
+                dragRow = null; updateOrderFields();
+            });
+
+            tbody.addEventListener('dragend', function () { if (dragRow) dragRow.classList.remove('dragging'); dragRow = null; updateOrderFields(); });
+
+            function createPlaceholder(height) { var ph = document.createElement('tr'); ph.className = 'placeholder-row'; var td = document.createElement('td'); td.colSpan = 8; td.style.padding = '0'; td.style.border = 'none'; td.style.height = (height || 20) + 'px'; ph.appendChild(td); return ph; }
+
+            function onPointerDown(e) {
+                if (e.button !== 0) return; var handle = e.target.closest('.drag-handle'); if (!handle) return; pointerDragging = true; dragRow = handle.closest('tr'); if (!dragRow) { pointerDragging = false; return; } var rect = dragRow.getBoundingClientRect(); placeholder = createPlaceholder(rect.height); dragRow.parentNode.insertBefore(placeholder, dragRow.nextSibling); ghost = dragRow.cloneNode(true); ghost.style.position = 'fixed'; ghost.style.left = rect.left + 'px'; ghost.style.top = rect.top + 'px'; ghost.style.width = rect.width + 'px'; ghost.style.pointerEvents = 'none'; ghost.classList.add('dragging'); document.body.appendChild(ghost); dragRow.style.visibility = 'collapse'; e.preventDefault();
+            }
+
+            function onPointerMove(e) { if (!pointerDragging || !ghost) return; ghost.style.left = (e.clientX - ghost.offsetWidth / 2) + 'px'; ghost.style.top = (e.clientY - ghost.offsetHeight / 2) + 'px'; var el = document.elementFromPoint(e.clientX, e.clientY); if (!el) return; var over = el.closest('tr'); if (!over || over === placeholder || over === dragRow) return; var rect = over.getBoundingClientRect(); var before = (e.clientY - rect.top) < (rect.height / 2); if (before) tbody.insertBefore(placeholder, over); else tbody.insertBefore(placeholder, over.nextSibling); }
+
+            function onPointerUp(e) { if (!pointerDragging) return; pointerDragging = false; if (ghost) { ghost.parentNode.removeChild(ghost); ghost = null; } if (placeholder) { tbody.insertBefore(dragRow, placeholder); placeholder.parentNode.removeChild(placeholder); placeholder = null; } if (dragRow) dragRow.style.visibility = ''; updateOrderFields(); dragRow = null; e.preventDefault(); }
+
+            document.addEventListener('pointerdown', onPointerDown, { passive: false }); document.addEventListener('pointermove', onPointerMove); document.addEventListener('pointerup', onPointerUp); document.addEventListener('pointercancel', onPointerUp);
+        } catch (ex) { console.error('initAttendenceOptionsDnD error', ex); }
+    };
 </script>

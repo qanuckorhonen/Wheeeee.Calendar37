@@ -1,0 +1,96 @@
+﻿@using Wheeeee.Calendar37.Core.Interfaces
+@model IOrchestraColors
+
+@{
+    // The Colors object is derived from a single base color (color1).
+    // ColorHeaderHtml is that base color (without #).
+    // RowColor0Html and RowColor1Html are computed brightened variants.
+    // We only expose the base color as an editable field.
+}
+
+<fieldset>
+    <legend>Farben</legend>
+    <table>
+        <tr>
+            <th><label for="Color1">Hauptfarbe</label></th>
+            <td>
+                <input type="color"
+                       id="Color1"
+                       name="Color1"
+                       value="#@Model.ColorHeaderHtml"
+                       oninput="updateColorPreviews(this.value)" />
+            </td>
+            <td>
+                <span id="color1-preview"
+                      class="color-preview"
+                      style="background:#@Model.ColorHeaderHtml"
+                      title="Kopfzeile"></span>
+            </td>
+        </tr>
+        <tr>
+            <th><label>Zeile (gerade)</label></th>
+            <td></td>
+            <td>
+                <span id="color-row0-preview"
+                      class="color-preview"
+                      style="background:#@Model.RowColor0Html"
+                      title="Zeilenfarbe 0 (aufgehellt)"></span>
+                <span id="color-row0-hex" class="color-hex">#@Model.RowColor0Html</span>
+            </td>
+        </tr>
+        <tr>
+            <th><label>Zeile (ungerade)</label></th>
+            <td></td>
+            <td>
+                <span id="color-row1-preview"
+                      class="color-preview"
+                      style="background:#@Model.RowColor1Html"
+                      title="Zeilenfarbe 1 (aufgehellt)"></span>
+                <span id="color-row1-hex" class="color-hex">#@Model.RowColor1Html</span>
+            </td>
+        </tr>
+    </table>
+</fieldset>
+
+<style>
+    .color-preview {
+        display: inline-block;
+        width: 2rem;
+        height: 1.2rem;
+        border: 1px solid var(--border, #ccc);
+        border-radius: var(--radius, 3px);
+        vertical-align: middle;
+    }
+    .color-hex {
+        font-size: .8rem;
+        color: var(--muted, #888);
+        margin-left: .4rem;
+        vertical-align: middle;
+    }
+</style>
+
+<script>
+    // Recomputes the brightened row-color previews client-side so the user
+    // gets live feedback that mirrors the server-side OrchestraColors logic.
+    function brighten(hex, pct) {
+        hex = hex.replace(/^#/, '');
+        if (hex.length === 3) hex = hex.split('').map(c => c + c).join('');
+        let r = parseInt(hex.slice(0, 2), 16);
+        let g = parseInt(hex.slice(2, 4), 16);
+        let b = parseInt(hex.slice(4, 6), 16);
+        r = Math.round(r + (255 - r) * pct / 100);
+        g = Math.round(g + (255 - g) * pct / 100);
+        b = Math.round(b + (255 - b) * pct / 100);
+        return '#' + [r, g, b].map(v => v.toString(16).padStart(2, '0')).join('');
+    }
+
+    function updateColorPreviews(hex) {
+        const row0 = brighten(hex, 70);
+        const row1 = brighten(hex, 50);
+        document.getElementById('color1-preview').style.background = hex;
+        document.getElementById('color-row0-preview').style.background = row0;
+        document.getElementById('color-row0-hex').textContent = row0;
+        document.getElementById('color-row1-preview').style.background = row1;
+        document.getElementById('color-row1-hex').textContent = row1;
+    }
+</script>

@@ -1,0 +1,258 @@
+﻿@using Wheeeee.Calendar37.Core.Interfaces
+@using Wheeeee.Calendar37.Core.Enums
+@using System.Linq
+@model IEnumerable<IAttendenceOption>
+
+<fieldset>
+    <legend>Anwesenheitsoptionen</legend>
+    <table class="attendence-options-table">
+        <thead>
+            <tr>
+                <th>Reihenfolge</th>
+                <th>Symbol</th>
+                <th>Kurztext</th>
+                <th>Kommentar</th>
+                <th>Wert</th>
+                <th>Farbe (hell)</th>
+                <th>Farbe (dunkel)</th>
+                <th>Aktiv</th>
+            </tr>
+        </thead>
+        <tbody>
+            @{
+                var options = Model.OrderBy(o => o.Order).ToArray(); int maxRows = options.Length;
+            }
+            @for (int rowIndex = 0; rowIndex < maxRows; rowIndex++)
+            {
+                var option = rowIndex < options.Length ? options[rowIndex] : null;
+                <tr>
+                    <td class="drag-cell" draggable="true">
+                        <input type="hidden" name="AttendenceOptions[@rowIndex].ID" value="@(option?.ID ?? 0)" />
+                        <input type="hidden" name="AttendenceOptions[@rowIndex].Order" value="@(option?.Order ?? rowIndex)" class="order-field" />
+                        <span class="drag-handle" draggable="true" title="Ziehen zum Umordnen">&#x2630;</span>
+                    </td>
+                    <td>
+                        <input type="text" name="AttendenceOptions[@rowIndex].SymbolName" value="@(option?.SymbolName ?? "")" class="input-symbol"
+                               placeholder="bi-…" title="Bootstrap-Icon-Name, z.B. bi-check-circle" />
+                        @if (!string.IsNullOrWhiteSpace(option?.SymbolName))
+                        {
+                            <i class="bi @option.SymbolName ms-1" aria-hidden="true"></i>
+                        }
+                    </td>
+                    <td>
+                        <input type="text" name="AttendenceOptions[@rowIndex].AltText" value="@(option?.AltText ?? "")" class="input-medium" />
+                    </td>
+                    <td>
+                        <input type="text" name="AttendenceOptions[@rowIndex].Comment" value="@(option?.Comment ?? "")" class="input-medium" />
+                    </td>
+                    <td>
+                        @* Wert is read-only: disabled select plus hidden input to post value *@
+                        <select disabled>
+                            <option value="">—</option>
+                            @foreach (var enumVal in Enum.GetValues<IsPresent>())
+                            {
+                                var intVal = (int)enumVal;
+                                var txt = enumVal.ToString();
+                                if (option != null && option.Value.HasValue && option.Value.Value == enumVal)
+                                {
+                                    <option value="@intVal" selected="selected">@txt</option>
+                                }
+                                else
+                                {
+                                    <option value="@intVal">@txt</option>
+                                }
+                            }
+                        </select>
+                        <input type="hidden" name="AttendenceOptions[@rowIndex].Value" value="@(option?.Value.HasValue == true ? ((int)option.Value.Value).ToString() : "")" />
+                    </td>
+                    <td>
+                        <input type="color" name="AttendenceOptions[@rowIndex].ColorLight" value="#@((option?.ColorLight) ?? "ffffff")" title="Helle Farbe" />
+                        <span class="color-preview" style="background:#@((option?.ColorLight) ?? "ffffff")"></span>
+                    </td>
+                    <td>
+                        <input type="color" name="AttendenceOptions[@rowIndex].ColorDark" value="#@((option?.ColorDark) ?? "cccccc")" title="Dunkle Farbe" />
+                        <span class="color-preview" style="background:#@((option?.ColorDark) ?? "cccccc")"></span>
+                    </td>
+                    <td class="text-center">
+                        @* fallback hidden so unchecked boxes post false (hidden first) *@
+                        <input type="hidden" name="AttendenceOptions[@rowIndex].IsActive" value="false" />
+                        <input type="checkbox" name="AttendenceOptions[@rowIndex].IsActive" value="true" checked="@(option != null ? "checked" : null)" />
+                    </td>
+                </tr>
+            }
+        </tbody>
+    </table>
+</fieldset>
+
+<style>
+    .attendence-options-table {
+        border-collapse: collapse;
+        width: 100%;
+    }
+    .attendence-options-table th,
+    .attendence-options-table td {
+        padding: .3rem .5rem;
+        border: 1px solid var(--border, #ddd);
+        vertical-align: middle;
+    }
+    .attendence-options-table thead th {
+        /* lighter background and darker text for better contrast */
+        background: var(--muted, #ffffff);
+        color: var(--text, #222);
+        font-weight: 600;
+        font-size: .8rem;
+        border-bottom: 2px solid rgba(0,0,0,0.06);
+    }
+    .drag-cell { cursor: grab; }
+    .drag-handle {
+        cursor: grab;
+        font-size: 1.2rem;
+        user-select: none;
+        -moz-user-select: none;
+        pointer-events: auto; /* ensure Bootstrap utilities don't disable pointer events */
+        touch-action: none; /* help pointer dragging */
+        padding: 0 .3rem;
+    }
+    .input-symbol  { width: 8rem; font-family: monospace; }
+    .input-medium  { width: 10rem; }
+    .color-preview {
+        display: inline-block;
+        width: 1.2rem;
+        height: 1.2rem;
+        border: 1px solid var(--border, #ccc);
+        border-radius: var(--radius, 3px);
+        vertical-align: middle;
+        margin-left: .2rem;
+    }
+    .attendence-options-table tr.dragging { opacity: .6; }
+</style>
+
+<script>
+    // Enhanced drag-and-drop that works in Firefox: supports HTML5 DnD and a pointer-based fallback.
+    document.addEventListener('DOMContentLoaded', function () {
+        console.log('Attendence options DnD script loaded');
+        var tbody = document.querySelector('.attendence-options-table tbody');
+        console.log('tbody element', tbody);
+        if (!tbody) return;
+
+        var dragRow = null;
+        var placeholder = null;
+        var ghost = null;
+        var pointerDragging = false;
+
+        function updateOrderFields() {
+            Array.from(tbody.querySelectorAll('tr')).forEach(function (row, idx) {
+                var orderInput = row.querySelector('.order-field');
+                if (orderInput) orderInput.value = idx;
+                Array.from(row.querySelectorAll('[name]')).forEach(function (el) {
+                    el.name = el.name.replace(/\[\d+\]/, '[' + idx + ']');
+                });
+            });
+        }
+
+        // HTML5 DnD handlers
+        tbody.addEventListener('dragstart', function (e) {
+            console.log('dragstart', e);
+            var handle = e.target.closest('.drag-handle');
+            if (!handle) { return; }
+            dragRow = handle.closest('tr');
+            if (!dragRow) return;
+            e.dataTransfer.effectAllowed = 'move';
+            try { e.dataTransfer.setData('text/plain', 'drag'); } catch (err) { }
+            dragRow.classList.add('dragging');
+        });
+
+        tbody.addEventListener('dragover', function (e) {
+            e.preventDefault();
+            var over = e.target.closest('tr');
+            if (!over || !dragRow || over === dragRow) return;
+            var rect = over.getBoundingClientRect();
+            var before = (e.clientY - rect.top) < (rect.height / 2);
+            if (before) tbody.insertBefore(dragRow, over);
+            else tbody.insertBefore(dragRow, over.nextSibling);
+            updateOrderFields();
+        });
+
+        tbody.addEventListener('drop', function (e) {
+            e.preventDefault();
+            if (dragRow) dragRow.classList.remove('dragging');
+            dragRow = null;
+            updateOrderFields();
+        });
+
+        tbody.addEventListener('dragend', function () {
+            if (dragRow) dragRow.classList.remove('dragging');
+            dragRow = null;
+            updateOrderFields();
+        });
+
+        // Pointer fallback for browsers or cases where HTML5 DnD doesn't start when dragging the handle
+        function createPlaceholder(height) {
+            var ph = document.createElement('tr');
+            ph.className = 'placeholder-row';
+            var td = document.createElement('td');
+            td.colSpan = 8; // match table columns
+            td.style.padding = '0';
+            td.style.border = 'none';
+            td.style.height = (height || 20) + 'px';
+            ph.appendChild(td);
+            return ph;
+        }
+
+        function onPointerDown(e) {
+            if (e.button !== 0) return; // left button only
+            var handle = e.target.closest('.drag-handle');
+            if (!handle) return;
+            pointerDragging = true;
+            dragRow = handle.closest('tr');
+            if (!dragRow) { pointerDragging = false; return; }
+            var rect = dragRow.getBoundingClientRect();
+            placeholder = createPlaceholder(rect.height);
+            dragRow.parentNode.insertBefore(placeholder, dragRow.nextSibling);
+            ghost = dragRow.cloneNode(true);
+            ghost.style.position = 'fixed';
+            ghost.style.left = rect.left + 'px';
+            ghost.style.top = rect.top + 'px';
+            ghost.style.width = rect.width + 'px';
+            ghost.style.pointerEvents = 'none';
+            ghost.classList.add('dragging');
+            document.body.appendChild(ghost);
+            dragRow.style.visibility = 'collapse';
+            e.preventDefault();
+        }
+
+        function onPointerMove(e) {
+            if (!pointerDragging || !ghost) return;
+            ghost.style.left = (e.clientX - ghost.offsetWidth / 2) + 'px';
+            ghost.style.top = (e.clientY - ghost.offsetHeight / 2) + 'px';
+            var el = document.elementFromPoint(e.clientX, e.clientY);
+            if (!el) return;
+            var over = el.closest('tr');
+            if (!over || over === placeholder || over === dragRow) return;
+            var rect = over.getBoundingClientRect();
+            var before = (e.clientY - rect.top) < (rect.height / 2);
+            if (before) tbody.insertBefore(placeholder, over);
+            else tbody.insertBefore(placeholder, over.nextSibling);
+        }
+
+        function onPointerUp(e) {
+            if (!pointerDragging) return;
+            pointerDragging = false;
+            if (ghost) { ghost.parentNode.removeChild(ghost); ghost = null; }
+            if (placeholder) {
+                tbody.insertBefore(dragRow, placeholder);
+                placeholder.parentNode.removeChild(placeholder);
+                placeholder = null;
+            }
+            if (dragRow) dragRow.style.visibility = '';
+            updateOrderFields();
+            dragRow = null;
+            e.preventDefault();
+        }
+
+        document.addEventListener('pointerdown', onPointerDown, { passive: false });
+        document.addEventListener('pointermove', onPointerMove);
+        document.addEventListener('pointerup', onPointerUp);
+        document.addEventListener('pointercancel', onPointerUp);
+    });
+</script>

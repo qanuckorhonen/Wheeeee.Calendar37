@@ -14,6 +14,7 @@ drop table [Event];
 drop table EventType;
 drop table Season;
 drop table Orchestra;
+
 go
 
 create table Orchestra(
@@ -21,6 +22,7 @@ create table Orchestra(
     UniqueID uniqueidentifier not null default newid(),
     Name varchar(100) not null,
     IsActive bit not null default 1,
+    Color1 char(6) not null default 'FFFFFF',
     Comment varchar(max)
 );
 go

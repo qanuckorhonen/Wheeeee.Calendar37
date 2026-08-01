@@ -8,12 +8,17 @@
 
   <ItemGroup>
     <PackageReference Include="Microsoft.VisualStudio.Web.CodeGeneration.Design" Version="8.0.23" />
+    <PackageReference Include="Wheeeee.Core" Version="1.0.10" />
   </ItemGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\Wheeeee.Calendar37.BL\Wheeeee.Calendar37.BL.csproj" />
     <ProjectReference Include="..\Wheeeee.Calendar37.Core\Wheeeee.Calendar37.Core.csproj" />
     <ProjectReference Include="..\Wheeeee.Calendar37.Repositories\Wheeeee.Calendar37.Repositories.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Folder Include="Utils\" />
   </ItemGroup>
 
 </Project>

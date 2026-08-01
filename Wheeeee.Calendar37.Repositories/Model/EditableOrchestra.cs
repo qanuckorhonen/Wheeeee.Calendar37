@@ -1,16 +1,31 @@
 ﻿using System;
 using System.Collections.Generic;
 using Wheeeee.Calendar37.Core.Interfaces;
+using Wheeeee.Core.Extensions;
 
 namespace Wheeeee.Calendar37.Repositories.Model
 {
     internal class EditableOrchestra : IEditableOrchestra
     {
-        public Guid Id => Guid.Empty;
-        public string Name => "Orchestra name";
-        public string Description => "Orchestra description";
-        public string Location => "Orchestra location";
-        public IEnumerable<IEditablePerson> Persons => [];
+        public Guid Id { get; }
+        public EditableOrchestra(Guid id, string name, string description, string location, IEnumerable<IEditablePerson> persons, IOrchestraColors colors, IEnumerable<IAttendenceOption> attendenceOptions, IEnumerable<ISeason> seasons)
+        {
+            Id = id;
+            Name = name;
+            Description = description;
+            Location = location;
+            Persons = persons.NN(nameof(persons));
+            Colors = colors.NN(nameof(colors));
+            AttendenceOptions = attendenceOptions.NN(nameof(attendenceOptions));
+            Seasons = seasons.NN(nameof(seasons));
+        }
 
+        public string Name { get; }
+        public string Description { get; }
+        public string Location { get; }
+        public IEnumerable<IEditablePerson> Persons { get; }
+        public IOrchestraColors Colors { get; }
+        public IEnumerable<IAttendenceOption> AttendenceOptions { get; }
+        public IEnumerable<ISeason> Seasons { get; }
     }
 }

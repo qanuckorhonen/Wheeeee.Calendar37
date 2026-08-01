@@ -2,6 +2,7 @@
 using System.Collections.Generic;
 using Wheeeee.Calendar37.Core.Enums;
 using Wheeeee.Calendar37.Core.Interfaces;
+using Wheeeee.Core.Interfaces.Collections;
 
 namespace Wheeeee.Calendar37.Repositories.Interfaces
 {
@@ -22,6 +23,7 @@ namespace Wheeeee.Calendar37.Repositories.Interfaces
         IEditableOrchestra GetEditableOrchestra(Guid orchestraGuid);
         IEnumerable<IAttendenceOption> LoadAttencenceOptions();
         IOrchestraColors GetOrchestraColors(int orchestraID);
+        void SaveEditableOrchestra(Guid orchestraGuid, IEnumerable<Wheeeee.Core.Interfaces.Collections.IDataCollection> seasons);
 
         void UpdateAttendence(int personID, int dateID, IsPresent? isPresent);
     }

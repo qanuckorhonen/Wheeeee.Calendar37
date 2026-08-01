@@ -371,7 +371,7 @@ from	PersonRole r
 where	r.IsActive = 1
 
 --------------------------------------------------------------------------------
--- RESULT SET 5: attendence optiones per orchestra
+-- RESULT SET 5: attendence options per orchestra
 --------------------------------------------------------------------------------
 select	ao.ID,
 		ao.AltText,
@@ -393,8 +393,9 @@ where	IsActive = 1
             DataRow row = dataSet.Tables["p"].Rows.Cast<DataRow>().FirstOrDefault();
             if (row == null)
             {
-                return [];
+                return Array.Empty<IMembership>();
             }
+
             var personData = DataRowExtension.ToDataCollection(row);
             personData.Add("CanEditOthers", dataSet.Tables["p"].Rows.Cast<DataRow>().Select(r => r["CanEditOthers"].To<CanEditOthers>()).Min());
             var person = InstantiatePerson(personData);
@@ -412,6 +413,7 @@ where	IsActive = 1
                 .Select(r =>
                 {
                     var orchestra = InstantiateOrchestra(r, attendenceOptions.Where(ao => ao.OrchestraID == r.Get<int>("OrchestraID")), "Orchestra");
+
 
                     var season = new Season(
                         r.Get<int>("SeasonID"),
@@ -1027,7 +1029,7 @@ where	IsActive = 1
             var ps = ds.Tables["p"].Rows.Cast<DataRow>().Select(r => DataRowExtension.ToDataCollection(r)).ToArray();
             if (ps.Length == 0)
             {
-                return null;
+                return Array.Empty<IPerson>();
             }
 
             var attendenceOptions = ds.Tables["ao"].Rows.Cast<DataRow>().Select(r => InstantiateAttendenceOption(DataRowExtension.ToDataCollection(r))).ToArray();
@@ -1496,8 +1498,134 @@ select	@id
 
         public IEditableOrchestra GetEditableOrchestra(Guid orchestraGuid)
         {
-            return new EditableOrchestra();
-            throw new NotImplementedException();
+            const string sql = @"
+select  o.ID, 
+        o.UniqueID, 
+        o.Name, 
+        o.Comment as Description, 
+        '' as Location, 
+        o.Color1 
+from    Orchestra o where   o.UniqueID = @OrchestraId and o.IsActive = 1
+
+select  ao.ID,
+        ao.AltText,
+        ao.Value,
+        ao.OrchestraID,
+        ao.ColorLight,
+        ao.ColorDark,
+        ao.SymbolName,
+        ao.Comment,
+        ao.IsMandatory,
+        ao.[Order]
+from    AttendenceOption ao
+join    Orchestra o
+    on  o.ID = ao.OrchestraID
+where   o.UniqueID = @OrchestraId
+    and ao.IsActive = 1
+order by ao.[Order]
+
+select  p.ID,
+        p.UniqueID,
+        p.FirstName,
+        p.LastName,
+        Roles = (
+            select  string_agg(convert(varchar(max), pr.ID), '|')
+            from    Person_PersonRole ppr2
+            join    PersonRole pr
+                on  pr.ID = ppr2.PersonRoleID
+            where   ppr2.PersonID = p.ID
+                and ppr2.IsActive = 1
+                and pr.IsActive = 1
+                and pr.OrchestraID = (
+                    select top 1 ID
+                    from   Orchestra
+                    where  UniqueID = @OrchestraId
+                        and IsActive = 1
+                )
+        )
+from    Person p
+where   p.IsActive = 1
+    and exists (
+        select  1
+        from    Person_PersonRole ppr
+        join    PersonRole pr
+            on  pr.ID = ppr.PersonRoleID
+        where   ppr.PersonID = p.ID
+            and ppr.IsActive = 1
+            and pr.IsActive = 1
+            and pr.OrchestraID = (
+                select top 1 ID
+                from   Orchestra
+                where  UniqueID = @OrchestraId
+                    and IsActive = 1
+            )
+    )
+order by p.LastName, p.FirstName, p.ID
+";
+            var ds = LoadDataSet(sql, ["o", "ao", "p"], new Dictionary<string, object> { { "OrchestraId", orchestraGuid } });
+
+            var orchestraRow = ds.Tables["o"].Rows.Cast<DataRow>().FirstOrDefault();
+            if (orchestraRow == null)
+            {
+                return null;
+            }
+
+            var o = DataRowExtension.ToDataCollection(orchestraRow);
+
+            var attendenceOptions = ds.Tables["ao"].Rows.Cast<DataRow>()
+                .Select(r => InstantiateAttendenceOption(DataRowExtension.ToDataCollection(r)))
+                .ToArray();
+
+            var colors = new OrchestraColors(o.Get<string>("Color1"));
+
+            // Load seasons for this orchestra (Caption, StartDate, Comment, IsActive). EndDate is computed elsewhere.
+            const string seasonsSql = @"
+select  s.ID,
+        s.OrchestraID,
+        s.Caption,
+        s.StartDate,
+        s.EndDate,
+        s.Comment,
+        s.IsActive
+from    vSeason s
+where   s.OrchestraID = (select top 1 ID from Orchestra where UniqueID = @OrchestraId and IsActive = 1)
+order by s.StartDate desc
+";
+
+            var orchestraModel = new Orchestra(o.Get<int>("ID"), o.Get<Guid>("UniqueID"), o.Get<string>("Name"), o.Get<string>("Color1"), attendenceOptions);
+
+            var seasons = Load(seasonsSql,
+                d => new Season(
+                    d.Get<int>("ID"),
+                    d.Get<string>("Caption"),
+                    d.Get<DateTime?>("StartDate"),
+                    d.Get<DateTime?>("EndDate"),
+                    orchestraModel),
+                new Dictionary<string, object> { { "OrchestraId", orchestraGuid } })
+                .ToArray();
+
+            var persons = ds.Tables["p"].Rows.Cast<DataRow>()
+                .Select(r => DataRowExtension.ToDataCollection(r))
+                .Select(d =>
+                {
+                    var rolesString = d.Get<string>("Roles");
+                    var roles = string.IsNullOrEmpty(rolesString)
+                        ? Array.Empty<int>()
+                        : rolesString.Split('|').Where(s => !string.IsNullOrEmpty(s)).Select(int.Parse).ToArray();
+
+                    return (IEditablePerson)new EditablePerson(d.Get<string>("FirstName"), d.Get<string>("LastName"), roles);
+                })
+                .ToArray();
+
+            return new EditableOrchestra(
+                o.Get<Guid>("UniqueID"),
+                o.Get<string>("Name"),
+                o.Get<string>("Description"),
+                o.Get<string>("Location"),
+                persons,
+                colors,
+                attendenceOptions,
+                seasons);
         }
 
         public IOrchestraColors GetOrchestraColors(int orchestraID)
@@ -1613,6 +1741,71 @@ where	ID = @ID
                 d.Get<bool>("IsMandatory"),
                 d.Get<int>("Order"),
                 value != null);
+        }
+
+        public void SaveEditableOrchestra(Guid orchestraGuid, IEnumerable<Wheeeee.Core.Interfaces.Collections.IDataCollection> seasons)
+        {
+            if (seasons == null) return;
+
+            const string getOrc = @"select top 1 ID from Orchestra where UniqueID = @UniqueID and IsActive = 1";
+            var orchestraID = LoadScalar<int?>(getOrc, new Dictionary<string, object> { { "UniqueID", orchestraGuid } });
+            if (orchestraID == null) return;
+
+            foreach (var dc in seasons)
+            {
+                if (dc == null) continue;
+
+                int id = 0;
+                try { id = dc.Get<int>("ID"); } catch { id = 0; }
+
+                string caption = string.Empty;
+                try { caption = dc.Get<string>("Caption"); } catch { caption = string.Empty; }
+
+                string comment = string.Empty;
+                try { comment = dc.Get<string>("Comment"); } catch { comment = string.Empty; }
+
+                bool isActive = false;
+                try { isActive = dc.Get<bool>("IsActive"); } catch { isActive = false; }
+
+                DateTime? startDate = null;
+                try { startDate = dc.Get<DateTime?>("StartDate"); } catch { startDate = null; }
+
+                if (id == 0)
+                {
+                    const string insertSql = @"
+insert into Season(OrchestraID, Caption, StartDate, IsActive, Comment)
+values(@OrchestraID, @Caption, @StartDate, @IsActive, @Comment)
+";
+                    Execute(insertSql, new Dictionary<string, object>
+                    {
+                        { "OrchestraID", orchestraID.Value },
+                        { "Caption", caption },
+                        { "StartDate", (object)startDate ?? DBNull.Value },
+                        { "IsActive", isActive ? 1 : 0 },
+                        { "Comment", comment }
+                    });
+                }
+                else
+                {
+                    const string updateSql = @"
+update Season
+set Caption = @Caption,
+    StartDate = @StartDate,
+    IsActive = @IsActive,
+    Comment = @Comment
+where ID = @ID and OrchestraID = @OrchestraID
+";
+                    Execute(updateSql, new Dictionary<string, object>
+                    {
+                        { "ID", id },
+                        { "OrchestraID", orchestraID.Value },
+                        { "Caption", caption },
+                        { "StartDate", (object)startDate ?? DBNull.Value },
+                        { "IsActive", isActive ? 1 : 0 },
+                        { "Comment", comment }
+                    });
+                }
+            }
         }
     }
 }

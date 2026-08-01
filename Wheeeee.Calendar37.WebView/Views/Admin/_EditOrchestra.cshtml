@@ -25,7 +25,7 @@
             </div>
             <div id="v3" class="tab-panel" role="tabpanel">
                 <div class="panel-content">
-                    <strong>Saisons</strong>
+                    <partial name="_EditOrchestraSaisons" model="Model.Seasons" />
                 </div>
             </div>
             <div id="v4" class="tab-panel" role="tabpanel">
@@ -48,7 +48,7 @@
 
 
 
-    <button type="button" onclick="saveOrchestra(@Model.Id)">Save</button>
+    <button type="button" onclick="saveOrchestra('@Model.Id')">Save</button>
 </form>
 
             
@@ -68,4 +68,17 @@
         });
       });
     });
+</script>
+
+<script>
+    function saveOrchestra(orchestraId) {
+        const form = document.getElementById('editForm');
+        const data = new FormData(form);
+        fetch('/Admin/Save?orchestraId=' + encodeURIComponent(orchestraId), {
+            method: 'POST',
+            body: data
+        }).then(r => {
+            if (!r.ok) alert('Save failed');
+        }).catch(e => alert('Save error'));
+    }
 </script>
