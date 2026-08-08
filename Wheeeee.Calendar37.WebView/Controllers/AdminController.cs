@@ -76,15 +76,24 @@ namespace Wheeeee.Calendar37.WebView.Controllers
             Guid orchestraGuid = Guid.Parse(o);
             var repo = (ICalenderRepository)Request.HttpContext.RequestServices.GetService(typeof(ICalenderRepository));
             var participants = repo.GetParticipants(orchestraGuid, s)
-                .Select(p => new {
+                .Select((p, idx) => new {
+                    Index = idx,
                     FirstName = p.FirstName,
                     LastName = p.LastName,
-                    Roles = p.RolesIDs ?? Array.Empty<int>()
+                    Roles = p.RolesIDs ?? Array.Empty<int>(),
+                    Instruments = p.InstrumentsIDs ?? Array.Empty<int>()
                 })
                 .ToArray();
 
-            return Json(participants);
+            // Return JSON with original (PascalCase) property names so the client-side script
+            // which expects PascalCase (e.g., FirstName) keeps working. The app uses Newtonsoft
+            // in views, so serialize with Newtonsoft here to preserve property names instead
+            // of relying on the global System.Text.Json naming policy (which may use camelCase).
+            var json = Newtonsoft.Json.JsonConvert.SerializeObject(participants);
+            return Content(json, "application/json");
         }
+
+        // SaveParticipants removed - editing is client-side only
 
         [HttpPost]
         public IActionResult Save(string orchestraId)

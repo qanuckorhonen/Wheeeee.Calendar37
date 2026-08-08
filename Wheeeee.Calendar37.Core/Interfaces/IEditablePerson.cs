@@ -5,5 +5,6 @@
         string FirstName { get; }
         string LastName { get; }
         IEnumerable<int> RolesIDs { get; }
+        IEnumerable<int> InstrumentsIDs { get; }
     }
 }

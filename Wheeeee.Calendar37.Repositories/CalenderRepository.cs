@@ -1543,6 +1543,21 @@ select  p.ID,
                         and IsActive = 1
                 )
         )
+        ,Instruments = (
+            select string_agg(convert(varchar(max), i.ID), '|')
+            from Person_Season_Instrument psi
+            join Season s2 on s2.ID = psi.SeasonID
+            join Instrument i on i.ID = psi.InstrumentID
+            where psi.PersonID = p.ID
+              and psi.IsActive = 1
+              and i.IsActive = 1
+              and s2.OrchestraID = (
+                    select top 1 ID
+                    from   Orchestra
+                    where  UniqueID = @OrchestraId
+                        and IsActive = 1
+                )
+        )
 from    Person p
 where   p.IsActive = 1
     and exists (
@@ -1613,7 +1628,12 @@ order by s.StartDate desc
                         ? Array.Empty<int>()
                         : rolesString.Split('|').Where(s => !string.IsNullOrEmpty(s)).Select(int.Parse).ToArray();
 
-                    return (IEditablePerson)new EditablePerson(d.Get<string>("FirstName"), d.Get<string>("LastName"), roles);
+                    var instString = d.Get<string>("Instruments");
+                    var insts = string.IsNullOrEmpty(instString)
+                        ? Array.Empty<int>()
+                        : instString.Split('|').Where(s => !string.IsNullOrEmpty(s)).Select(int.Parse).ToArray();
+
+                    return (IEditablePerson)new EditablePerson(d.Get<string>("FirstName"), d.Get<string>("LastName"), roles, insts);
                 })
                 .ToArray();
 
@@ -1696,9 +1716,18 @@ select  p.ID,
               and ppr2.IsActive = 1
               and pr.IsActive = 1
               and pr.OrchestraID = @OrchestraID
+        ),
+        Instruments = (
+            select string_agg(convert(varchar(max), i.ID), '|')
+            from Person_Season_Instrument psi
+            join Instrument i on i.ID = psi.InstrumentID
+            where psi.PersonID = p.ID
+              and psi.SeasonID = @SeasonID
+              and psi.IsActive = 1
+              and i.IsActive = 1
         )
 from Person p
-join Person_Orchestra po on po.PersonID = p.ID and po.IsActive = 1
+join Person_Orchestra po on po.PersonID = p.ID and po.OrchestraID = @OrchestraID and po.IsActive = 1
 where p.IsActive = 1
   and (
         exists(select 1 from Person_Season_Instrument psi where psi.PersonID = p.ID and psi.SeasonID = @SeasonID and psi.IsActive = 1)
@@ -1715,7 +1744,12 @@ order by p.LastName, p.FirstName
                         ? Array.Empty<int>()
                         : rolesString.Split('|').Where(s => !string.IsNullOrEmpty(s)).Select(int.Parse).ToArray();
 
-                    return (IEditablePerson)new EditablePerson(d.Get<string>("FirstName"), d.Get<string>("LastName"), roles);
+                    var instString = d.Get<string>("Instruments");
+                    var insts = string.IsNullOrEmpty(instString)
+                        ? Array.Empty<int>()
+                        : instString.Split('|').Where(s => !string.IsNullOrEmpty(s)).Select(int.Parse).ToArray();
+
+                    return (IEditablePerson)new EditablePerson(d.Get<string>("FirstName"), d.Get<string>("LastName"), roles, insts);
                 },
                 new Dictionary<string, object> { { "OrchestraGuid", orchestraGuid }, { "SeasonID", seasonID } }).ToArray();
         }

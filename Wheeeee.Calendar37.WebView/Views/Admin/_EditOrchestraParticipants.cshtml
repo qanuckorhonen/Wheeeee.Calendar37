@@ -13,9 +13,12 @@
     var repo = (Wheeeee.Calendar37.Repositories.Interfaces.ICalenderRepository)ViewContext.HttpContext.RequestServices.GetService(typeof(Wheeeee.Calendar37.Repositories.Interfaces.ICalenderRepository));
     var participants = currentSeasonId == 0 ? Array.Empty<Wheeeee.Calendar37.Core.Interfaces.IEditablePerson>() : repo?.GetParticipants(new Guid(Model.Id.ToString()), currentSeasonId) ?? Array.Empty<Wheeeee.Calendar37.Core.Interfaces.IEditablePerson>();
     var rolesJson = Newtonsoft.Json.JsonConvert.SerializeObject(Model.Roles == null ? Array.Empty<object>() : Model.Roles.Select(r => new { id = r.ID, name = r.Name }).ToArray());
+    var instrumentsJson = Newtonsoft.Json.JsonConvert.SerializeObject(Model.Instruments == null ? Array.Empty<object>() : Model.Instruments.Select(i => new { id = i.ID, name = i.Name, groupName = i.GroupName, groupOrder = i.GroupOrder, registerName = i.RegisterName, registerOrder = i.RegisterOrder, order = i.Order }).ToArray());
+    var participantsJson = Newtonsoft.Json.JsonConvert.SerializeObject(participants.Select((p, idx) => new { Index = idx, FirstName = p.FirstName, LastName = p.LastName, Roles = p.RolesIDs ?? Array.Empty<int>(), Instruments = p.InstrumentsIDs ?? Array.Empty<int>() }).ToArray());
 }
 
-<fieldset>
+<fieldset class="fullwidth-bleed">
+    <div class="content-wrap">
     <legend>Mitwirkende</legend>
 
     <p class="muted">Personen und ihre Rollenzuordnungen für die gewählte Saison.</p>
@@ -33,45 +36,60 @@
             var optionsHtml = sb.ToString();
         }
         <select id="seasonSelect">@Html.Raw(optionsHtml)</select>
+
+        <label for="viewModeSelect">View:</label>
+        <select id="viewModeSelect">
+            <option value="list">List</option>
+            <option value="group-role">Grouped by Role</option>
+            <option value="group-group">Grouped by Group</option>
+            <option value="group-group-instrument">Grouped by Group & Instrument</option>
+        </select>
+
+        <label for="sortKeySelect">Sort by:</label>
+        <select id="sortKeySelect">
+            <option value="FirstName">FirstName</option>
+            <option value="LastName">LastName</option>
+        </select>
     </div>
 
     <div id="participantsContainer">
-        <table class="participants-table">
-            <thead>
-                <tr>
-                    <th>Nr.</th>
-                    <th>Vorname</th>
-                    <th>Nachname</th>
-                    <th>Rollen</th>
-                </tr>
-            </thead>
-            <tbody>
-                @{ int idx = 1; foreach (var p in participants) { <text>
-                    <tr>
-                        <td>@(idx)</td>
-                        <td>@p.FirstName</td>
-                        <td>@p.LastName</td>
-                        <td>
-                            @foreach (var r in Model.Roles ?? Enumerable.Empty<IPersonRole>())
-                            {
-                                if (p.RolesIDs != null && p.RolesIDs.Contains(r.ID))
-                                {
-                                    <span class="role">@r.Name</span>
-                                }
-                            }
-                        </td>
-                    </tr>
-                </text>; idx++; } }
-            </tbody>
-        </table>
+        <!-- Participants will be rendered here by client-side script -->
+    </div>
+
+    <!-- Save participants removed per request -->
     </div>
 </fieldset>
 
 <style>
+    /* fullwidth wrapper: do not shift layout using 50%/-50vw trick (it broke nested controls).
+       Keep the outer element full width but push inner content into a centered content-wrap. */
+    /* full-bleed wrapper: move the element to viewport edges while keeping inner content centered
+       using .content-wrap. This avoids shifting descendant percentage-based layouts. */
+    .fullwidth-bleed {
+        position: relative;
+        left: 50%;
+        right: 50%;
+        margin-left: -50vw;
+        margin-right: -50vw;
+        width: 100vw;
+        box-sizing: border-box;
+        background: transparent;
+        padding: 0; /* inner padding handled by .content-wrap */
+    }
+    .fullwidth-bleed > .content-wrap { max-width: 1200px; margin: 0 auto; padding: 0.5rem 1rem; box-sizing: border-box; }
+
     .season-control { margin-bottom: .5rem; display:flex; gap:.5rem; align-items:center; }
     /* try to emphasize current season option; note: option styling is browser-limited */
     .season-control select option.current { font-weight:700; }
     .muted { color:#666; font-size:.9rem; margin-bottom:.5rem; }
+    /* Use a consistent, slightly larger font for all participant tables */
+    .participants-table, .participants-table.small { width:100%; border-collapse: collapse; margin-bottom:.5rem; font-size:1rem; }
+    .participants-table th, .participants-table td { padding: .25rem; border: 1px solid #e1e1e1; text-align:left; }
+    .participants-table input { width:100%; box-sizing: border-box; padding:.25rem; }
+    .participant-group { margin-bottom: 1rem; }
+    .participant-group h4 { margin: .25rem 0; }
+    .instrument-block h5 { margin:.25rem 0 .5rem 0; font-size:0.95rem; }
+    .role-checkbox { margin-right:.5rem; display:inline-block; }
 </style>
 
 <script>
@@ -81,26 +99,498 @@
         const orchestraId = '@Model.Id';
 
         const roles = @Html.Raw(rolesJson);
+        const instruments = @Html.Raw(instrumentsJson);
+        // sorted instrument list used for selects
+        const sortedInstruments = instruments.slice().sort((a,b) => {
+            if ((a.groupOrder||0) !== (b.groupOrder||0)) return (a.groupOrder||0) - (b.groupOrder||0);
+            if ((a.registerOrder||0) !== (b.registerOrder||0)) return (a.registerOrder||0) - (b.registerOrder||0);
+            if ((a.order||0) !== (b.order||0)) return (a.order||0) - (b.order||0);
+            return (a.name||'').localeCompare(b.name||'');
+        });
+        let currentParticipants = @Html.Raw(participantsJson);
+        // cache participant edits per season to preserve client-side changes when switching seasons
+        const participantsCache = {};
+        let activeSeasonId = Number(select.value || '0');
+        // store initial loaded participants in cache (normalize IDs to numbers)
+        participantsCache[activeSeasonId] = (currentParticipants || []).map(p => ({ ...p, Roles: (p.Roles||[]).map(Number), Instruments: (p.Instruments||[]).map(Number) }));
 
-        select.addEventListener('change', () => {
-            const seasonId = select.value;
-            // update current-season label
-            const currentSpan = document.querySelector('.current-season strong');
-            if (currentSpan) currentSpan.textContent = select.options[select.selectedIndex].text;
+        const viewModeSelect = document.getElementById('viewModeSelect');
+        const sortKeySelect = document.getElementById('sortKeySelect');
 
-            fetch(`/Admin/GetParticipants?o=${encodeURIComponent(orchestraId)}&s=${encodeURIComponent(seasonId)}`)
-                .then(r => r.json())
-                .then(data => {
-                    // build table rows
-                    const rows = data.map((p, idx) => {
-                        const roleSpans = roles.filter(r => (p.Roles || []).includes(r.id)).map(r => `<span class="role">${escapeHtml(r.name)}</span>`).join(' ');
-                        return `<tr><td>${idx+1}</td><td>${escapeHtml(p.FirstName)}</td><td>${escapeHtml(p.LastName)}</td><td>${roleSpans}</td></tr>`;
-                    }).join('');
-                    container.innerHTML = `<table class="participants-table"><thead><tr><th>Nr.</th><th>Vorname</th><th>Nachname</th><th>Rollen</th></tr></thead><tbody>${rows}</tbody></table>`;
-                })
-                .catch(e => console.error(e));
+        function escapeHtml(s) {
+            return (s||'').replace(/[&<>\"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'})[c]);
+        }
+
+        function buildRoleCheckboxes(p) {
+            return roles.map(r => {
+                const checked = (p.Roles||[]).includes(r.id) ? 'checked' : '';
+                return `<label class="role-checkbox"><input type="checkbox" data-role-id="${r.id}" ${checked}> ${escapeHtml(r.name)}</label>`;
+            }).join(' ');
+        }
+
+        function renderList(data) {
+            const rows = data.map((p, idx) => {
+                const index = p.Index ?? idx;
+                // build instrument select options (multiple)
+                const selOpts = sortedInstruments.map(i => {
+                    const selected = (p.Instruments||[]).includes(i.id) ? ' selected' : '';
+                    const label = `${i.groupName || 'Ungrouped'} / ${i.registerName || ''} / ${i.name}`;
+                    return `<option value="${i.id}"${selected}>${escapeHtml(label)}</option>`;
+                }).join('');
+
+                // display assigned instruments as an anchor that opens a modal tree selector
+                const assignedText = buildInstrumentLinkText(p.Instruments || []);
+                return `
+                    <tr data-index="${index}" data-instruments="${(p.Instruments||[]).join(',')}">
+                        <td>${idx+1}</td>
+                        <td><input class="fname" value="${escapeHtml(p.FirstName||'')}"></td>
+                        <td><input class="lname" value="${escapeHtml(p.LastName||'')}"></td>
+                        <td><a href="#" class="instrument-link" data-index="${index}">${escapeHtml(assignedText)}</a></td>
+                        <td class="roles-cell">${buildRoleCheckboxes(p)}</td>
+                    </tr>
+                `;
+            }).join('');
+            container.innerHTML = `<table class="participants-table"><thead><tr><th>Nr.</th><th>Vorname</th><th>Nachname</th><th>Instrumente</th><th>Rollen</th></tr></thead><tbody>${rows}</tbody></table>`;
+        }
+
+        function renderGroupedByRole(data) {
+            const roleMap = {};
+            const noRoleKey = 'No role';
+            data.forEach(p => {
+                const keyId = (p.Roles && p.Roles.length>0) ? p.Roles[0] : null;
+                const roleName = keyId ? (roles.find(r => r.id === keyId)?.name || 'Other') : noRoleKey;
+                if (!roleMap[roleName]) roleMap[roleName] = [];
+                roleMap[roleName].push(p);
+            });
+            // Build sorted instruments for selects
+            const sortedInstruments = instruments.slice().sort((a,b) => {
+                if ((a.groupOrder||0) !== (b.groupOrder||0)) return (a.groupOrder||0) - (b.groupOrder||0);
+                if ((a.registerOrder||0) !== (b.registerOrder||0)) return (a.registerOrder||0) - (b.registerOrder||0);
+                if ((a.order||0) !== (b.order||0)) return (a.order||0) - (b.order||0);
+                return (a.name||'').localeCompare(b.name||'');
+            });
+
+            const groupsHtml = Object.keys(roleMap).map(roleName => {
+                const persons = roleMap[roleName];
+                const personRows = persons.map((p, idx) => {
+                    const assignedText = buildInstrumentLinkText(p.Instruments || []);
+                    return `\n                    <tr data-index="${p.Index}" data-instruments="${(p.Instruments||[]).join(',')}">\n                        <td>${idx+1}</td>\n                        <td><input class="fname" value="${escapeHtml(p.FirstName||'')}"></td>\n                        <td><input class="lname" value="${escapeHtml(p.LastName||'')}"></td>\n                        <td><a href="#" class="instrument-link" data-index="${p.Index}">${escapeHtml(assignedText)}</a></td>\n                        <td class="roles-cell">${buildRoleCheckboxes(p)}</td>\n                    </tr>`;
+                }).join('');
+                return `<div class="participant-group" data-role-name="${escapeHtml(roleName)}"><h4>${escapeHtml(roleName)}</h4><table class="participants-table small"><thead><tr><th>Nr.</th><th>Vorname</th><th>Nachname</th><th>Instrument</th><th>Rollen</th></tr></thead><tbody>${personRows}</tbody></table></div>`;
+            }).join('\n');
+            container.innerHTML = groupsHtml;
+            // instrument links are handled by the delegated click listener (openInstrumentModal)
+        }
+
+        container.addEventListener('input', function (e) {
+            const t = e.target;
+            if (!t) return;
+            if (t.classList && (t.classList.contains('fname') || t.classList.contains('lname'))) {
+                const row = t.closest('tr');
+                if (!row) return;
+                const idx = parseInt(row.dataset.index);
+                const cp = currentParticipants.find(x => x.Index === idx);
+                if (!cp) return;
+                if (t.classList.contains('fname')) cp.FirstName = t.value;
+                if (t.classList.contains('lname')) cp.LastName = t.value;
+                if (typeof activeSeasonId !== 'undefined') {
+                    participantsCache[activeSeasonId] = (currentParticipants || []).map(p => ({ ...p, Roles: (p.Roles||[]).slice(), Instruments: (p.Instruments||[]).slice() }));
+                }
+            }
         });
 
-        function escapeHtml(s){ return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+        function getSortOrderValue(value, fallback) {
+            const parsed = Number(value);
+            return Number.isFinite(parsed) ? parsed : fallback;
+        }
+
+        function getInstrumentOrder(inst) {
+            const raw = inst && (typeof inst.Order !== 'undefined' ? inst.Order : inst.order);
+            return getSortOrderValue(raw, Number.MAX_SAFE_INTEGER);
+        }
+
+        function getSortKeyValue(item, sortKey) {
+            return (item && item[sortKey] != null ? String(item[sortKey]) : '').toLowerCase();
+        }
+
+        function renderGroupedByInstrument(data, includeInstrumentLevel) {
+            const instById = {};
+            instruments.forEach(i => instById[i.id] = i);
+
+            const groupMap = {};
+            const noGroupKey = 'Ungrouped';
+
+            function ensureGroup(groupName, groupOrder) {
+                const key = groupName || noGroupKey;
+                if (!groupMap[key]) {
+                    groupMap[key] = { name: key, order: groupOrder || Number.MAX_SAFE_INTEGER, instruments: {} };
+                }
+                return groupMap[key];
+            }
+
+            function addPersonToGroup(groupName, groupOrder, instrumentId, instrumentName, instrumentOrder, person) {
+                const group = ensureGroup(groupName, groupOrder);
+
+                if (!includeInstrumentLevel) {
+                    if (!group.persons) group.persons = [];
+                    if (!group.persons.some(existing => existing.Index === person.Index)) {
+                        group.persons.push(person);
+                    }
+                    return;
+                }
+
+                const instKey = instrumentId != null ? String(instrumentId) : '';
+                if (!group.instruments[instKey]) {
+                    group.instruments[instKey] = { id: instrumentId, name: instrumentName || 'Unassigned instrument', order: instrumentOrder || Number.MAX_SAFE_INTEGER, persons: [] };
+                }
+                if (!group.instruments[instKey].persons.some(existing => existing.Index === person.Index)) {
+                    group.instruments[instKey].persons.push(person);
+                }
+            }
+
+            data.forEach(p => {
+                const instIds = p.Instruments || [];
+                if (!instIds || instIds.length === 0) {
+                    addPersonToGroup(noGroupKey, Number.MAX_SAFE_INTEGER, null, 'Unassigned instrument', Number.MAX_SAFE_INTEGER, p);
+                    return;
+                }
+
+                instIds.forEach(id => {
+                    const inst = instById[id];
+                    const groupName = inst ? (inst.groupName || noGroupKey) : noGroupKey;
+                    const groupOrder = inst && typeof inst.groupOrder !== 'undefined' ? inst.groupOrder : Number.MAX_SAFE_INTEGER;
+                    const instrumentName = inst ? inst.name : 'Unnamed instrument';
+                    const instrumentOrder = inst ? getInstrumentOrder(inst) : Number.MAX_SAFE_INTEGER;
+                    addPersonToGroup(groupName, groupOrder, id, instrumentName, instrumentOrder, p);
+                });
+            });
+
+            const groupKeys = Object.keys(groupMap).sort((a,b) => {
+                const ga = groupMap[a].order || 0; const gb = groupMap[b].order || 0;
+                if (ga !== gb) return ga - gb;
+                return a.localeCompare(b);
+            });
+
+            const groupsHtml = groupKeys.map(gk => {
+                const g = groupMap[gk];
+
+                if (!includeInstrumentLevel) {
+                    const persons = (g.persons || []).slice();
+                    persons.sort((a,b) => {
+                        const ak = (a[sortKeySelect.value]||'').toLowerCase();
+                        const bk = (b[sortKeySelect.value]||'').toLowerCase();
+                        if (ak < bk) return -1; if (ak > bk) return 1; return 0;
+                    });
+                    const personRows = persons.map((p, idx) => {
+                        const assignedText = buildInstrumentLinkText(p.Instruments || []);
+                        return `\n                            <tr data-index="${p.Index}" data-instruments="${(p.Instruments||[]).join(',')}"><td>${idx+1}</td><td><input class="fname" value="${escapeHtml(p.FirstName||'')}"></td><td><input class="lname" value="${escapeHtml(p.LastName||'')}"></td><td><a href="#" class="instrument-link" data-index="${p.Index}">${escapeHtml(assignedText)}</a></td><td class="roles-cell">${buildRoleCheckboxes(p)}</td></tr>`;
+                    }).join('');
+                    return `<div class="participant-group"><h4>${escapeHtml(g.name)}</h4><table class="participants-table small"><thead><tr><th>Nr.</th><th>Vorname</th><th>Nachname</th><th>Instrument</th><th>Rollen</th></tr></thead><tbody>${personRows}</tbody></table></div>`;
+                }
+
+                const instKeys = Object.keys(g.instruments).sort((a,b) => {
+                    const ia = g.instruments[a].order || Number.MAX_SAFE_INTEGER;
+                    const ib = g.instruments[b].order || Number.MAX_SAFE_INTEGER;
+                    if (ia !== ib) return ia - ib;
+                    return a.localeCompare(b);
+                });
+
+                const instSections = instKeys.map(ik => {
+                    const inst = g.instruments[ik];
+                    const persons = (inst.persons || []).slice();
+                    const sortKey = sortKeySelect.value || 'FirstName';
+                    persons.sort((a,b) => {
+                        const ak = getSortKeyValue(a, sortKey);
+                        const bk = getSortKeyValue(b, sortKey);
+                        if (ak < bk) return -1; if (ak > bk) return 1; return 0;
+                    });
+                    const personRows = persons.map((p, idx) => `\n                                <tr data-index="${p.Index}"><td>${idx+1}</td><td><input class="fname" value="${escapeHtml(p.FirstName||'')}"></td><td><input class="lname" value="${escapeHtml(p.LastName||'')}"></td><td class="roles-cell">${buildRoleCheckboxes(p)}</td></tr>`).join('');
+                    return `<div class="instrument-block"><h5>${escapeHtml(inst.name)}</h5><table class="participants-table small"><thead><tr><th>Nr.</th><th>Vorname</th><th>Nachname</th><th>Rollen</th></tr></thead><tbody>${personRows}</tbody></table></div>`;
+                }).join('\n');
+
+                return `<div class="participant-group"><h4>${escapeHtml(g.name)}</h4>${instSections}</div>`;
+            }).join('\n');
+
+            container.innerHTML = groupsHtml;
+        }
+
+        function renderParticipants(data) {
+            const sortKey = sortKeySelect.value || 'FirstName';
+            const viewMode = viewModeSelect.value || 'list';
+
+            // stable-ish sort
+            data.sort((a,b) => {
+                const av = (a[sortKey]||'').toLowerCase();
+                const bv = (b[sortKey]||'').toLowerCase();
+                if (av < bv) return -1; if (av > bv) return 1; return 0;
+            });
+
+            if (viewMode === 'list') {
+                renderList(data);
+            } else if (viewMode === 'group-role') {
+                renderGroupedByRole(data);
+            } else if (viewMode === 'group-group') {
+                renderGroupedByInstrument(data, false);
+            } else if (viewMode === 'group-group-instrument') {
+                renderGroupedByInstrument(data, true);
+            }
+        }
+
+        // collectParticipantsFromDom removed - save functionality removed
+
+        async function loadParticipants(seasonId) {
+            // ensure numeric season id
+            const sid = Number.isNaN(Number(seasonId)) ? 0 : Number(seasonId);
+            // show loading state immediately so stale UI is not visible
+            container.innerHTML = `<div class="muted">Loading participants...</div>`;
+
+            // persist current edits to cache for active season before switching
+            if (typeof activeSeasonId !== 'undefined') {
+                participantsCache[activeSeasonId] = (currentParticipants || []).map(p => ({ ...p, Roles: (p.Roles||[]).map(Number), Instruments: (p.Instruments||[]).map(Number) }));
+            }
+
+            // if we have a cached copy for the requested season, use it instead of fetching
+            if (participantsCache[sid]) {
+                currentParticipants = participantsCache[sid].map(p => ({ ...p, Roles: (p.Roles||[]).map(Number), Instruments: (p.Instruments||[]).map(Number) }));
+                activeSeasonId = sid;
+                renderParticipants(currentParticipants.slice());
+                return;
+            }
+
+            try {
+                const res = await fetch(`/Admin/GetParticipants?o=${encodeURIComponent(orchestraId)}&s=${encodeURIComponent(sid)}`);
+                if (!res.ok) {
+                    container.innerHTML = `<div class="muted">Error loading participants (server returned ${res.status})</div>`;
+                    console.debug('GetParticipants status', res.status, res);
+                    currentParticipants = [];
+                    return;
+                }
+                const data = await res.json();
+                console.debug('GetParticipants returned', data && data.length ? data.length : 0, data);
+
+                // treat empty array as no-data; otherwise render whatever the server returned
+                const isEmptyArray = !data || !Array.isArray(data) || data.length === 0;
+                if (isEmptyArray) {
+                    container.innerHTML = `<div class="muted">No participants for the selected season.</div>`;
+                    currentParticipants = [];
+                    return;
+                }
+
+                // use server-provided data even if some fields are empty
+                currentParticipants = data.map(p => ({ ...p, Roles: (p.Roles||[]).map(Number), Instruments: (p.Instruments||[]).map(Number) }));
+                // cache the freshly loaded participants for this season
+                participantsCache[sid] = (currentParticipants || []).map(p => ({ ...p, Roles: (p.Roles||[]).map(Number), Instruments: (p.Instruments||[]).map(Number) }));
+                activeSeasonId = sid;
+                renderParticipants(currentParticipants.slice());
+            } catch (e) {
+                container.innerHTML = `<div class="muted">Error loading participants</div>`;
+                console.error('GetParticipants failed', e);
+                currentParticipants = [];
+            }
+        }
+
+        viewModeSelect.addEventListener('change', () => renderParticipants(currentParticipants.slice()));
+        sortKeySelect.addEventListener('change', () => renderParticipants(currentParticipants.slice()));
+        select.addEventListener('change', () => loadParticipants(parseInt(select.value || '0', 10)));
+
+        // delegate change events for role checkboxes
+        container.addEventListener('change', function (e) {
+            const t = e.target;
+            if (t && t.matches && t.matches('input[type="checkbox"][data-role-id]')) {
+                const roleId = parseInt(t.dataset.roleId);
+                const row = t.closest('tr');
+                if (!row) return;
+                const idx = parseInt(row.dataset.index);
+                const cp = currentParticipants.find(x => x.Index === idx);
+                if (!cp) return;
+                if (t.checked) {
+                    cp.Roles = cp.Roles || [];
+                    if (!cp.Roles.includes(roleId)) cp.Roles.push(roleId);
+                } else {
+                    cp.Roles = (cp.Roles || []).filter(r => r !== roleId);
+                }
+            }
+
+        });
+
+        // click handler for instrument links (delegated)
+        container.addEventListener('click', function (e) {
+            const t = e.target;
+            if (!t || !t.classList) return;
+            if (t.classList.contains('instrument-link')) {
+                e.preventDefault();
+                const idx = parseInt(t.dataset.index);
+                openInstrumentModal(idx);
+            }
+        });
+
+        // --- Instrument modal helper ---
+        // Build display text for assigned instruments
+        function buildInstrumentLinkText(instIds) {
+            if (!instIds || instIds.length === 0) return 'Select instruments...';
+            const names = (instIds || []).map(id => {
+                const it = instruments.find(x => x.id === id);
+                return it ? `${it.name}` : null;
+            }).filter(Boolean);
+            return names.length ? names.join(', ') : 'Select instruments...';
+        }
+
+        // Create modal DOM once
+        let instrumentModal = null;
+        function ensureInstrumentModal() {
+            if (instrumentModal) return instrumentModal;
+            instrumentModal = document.createElement('div');
+            instrumentModal.id = 'instrumentModal';
+            instrumentModal.className = 'instrument-modal hidden';
+            instrumentModal.innerHTML = `
+                <div class="instrument-modal-backdrop"></div>
+                <div class="instrument-modal-dialog">
+                    <div class="instrument-modal-header"><h3>Select instruments</h3></div>
+                    <div class="instrument-modal-body"></div>
+                    <div class="instrument-modal-footer">
+                        <button type="button" class="btn instr-cancel">Cancel</button>
+                        <button type="button" class="btn btn-primary instr-save">Save</button>
+                    </div>
+                </div>`;
+            document.body.appendChild(instrumentModal);
+
+            // wire up buttons using custom classes to avoid colliding with bootstrap .btn-close
+            instrumentModal.querySelector('.instr-cancel').addEventListener('click', () => instrumentModal.classList.add('hidden'));
+            instrumentModal.querySelector('.instrument-modal-backdrop').addEventListener('click', () => instrumentModal.classList.add('hidden'));
+            instrumentModal.querySelector('.instr-save').addEventListener('click', () => {
+                const idx = parseInt(instrumentModal.dataset.index);
+                const checkboxes = instrumentModal.querySelectorAll('input[type="checkbox"][data-inst-id]');
+                const values = Array.from(checkboxes).filter(cb => cb.checked).map(cb => Number(cb.dataset.instId)).filter(n => !Number.isNaN(n));
+                // update model
+                const cp = currentParticipants.find(x => x.Index === idx);
+                if (cp) {
+                    cp.Instruments = values;
+                }
+                // update row DOM
+                const row = container.querySelector(`tr[data-index="${idx}"]`);
+                if (row) {
+                    row.setAttribute('data-instruments', values.join(','));
+                    const link = row.querySelector('.instrument-link');
+                    if (link) link.textContent = buildInstrumentLinkText(values);
+                }
+                // update cache for current season (normalize to numbers)
+                if (typeof activeSeasonId !== 'undefined') {
+                    participantsCache[activeSeasonId] = (currentParticipants || []).map(p => ({ ...p, Roles: (p.Roles||[]).map(Number), Instruments: (p.Instruments||[]).map(Number) }));
+                }
+                instrumentModal.classList.add('hidden');
+            });
+
+            return instrumentModal;
+        }
+
+        function openInstrumentModal(idx) {
+            const modal = ensureInstrumentModal();
+            modal.dataset.index = idx;
+            const body = modal.querySelector('.instrument-modal-body');
+            body.innerHTML = '';
+
+            // Build hierarchical tree: group -> register -> instruments
+            const groups = {};
+            instruments.forEach(i => {
+                const g = i.groupName || '__ungrouped__';
+                const r = i.registerName || '__unregister__';
+                groups[g] = groups[g] || {};
+                groups[g][r] = groups[g][r] || [];
+                groups[g][r].push(i);
+            });
+
+            const idxParticipant = currentParticipants.find(x => x.Index === idx);
+            // normalize selected ids to numbers to avoid string/number mismatches
+            const selected = new Set(((idxParticipant && idxParticipant.Instruments) || []).map(n => Number(n)));
+
+            const ul = document.createElement('ul');
+            ul.className = 'instrument-tree';
+
+            Object.keys(groups).sort().forEach(gk => {
+                const gLi = document.createElement('li');
+                gLi.className = 'group';
+                const gHeader = document.createElement('div');
+                gHeader.className = 'group-header collapsed';
+                gHeader.textContent = gk === '__ungrouped__' ? 'Ungrouped' : gk;
+                gHeader.addEventListener('click', () => gHeader.classList.toggle('collapsed'));
+                gLi.appendChild(gHeader);
+
+                const registers = groups[gk];
+                const regUl = document.createElement('ul');
+                Object.keys(registers).sort().forEach(rk => {
+                    const rLi = document.createElement('li');
+                    rLi.className = 'register';
+                    const rHeader = document.createElement('div');
+                    rHeader.className = 'register-header collapsed';
+                    rHeader.textContent = rk === '__unregister__' ? '' : rk;
+                    rHeader.addEventListener('click', () => rHeader.classList.toggle('collapsed'));
+                    rLi.appendChild(rHeader);
+
+                    const instUl = document.createElement('ul');
+                    registers[rk].sort((a,b) => (a.order||0)-(b.order||0)).forEach(inst => {
+                        const iLi = document.createElement('li');
+                        iLi.className = 'instrument-item';
+                        const id = inst.id;
+                        const label = document.createElement('label');
+                        label.innerHTML = `<input type="checkbox" data-inst-id="${id}" ${selected.has(id) ? 'checked' : ''}> ${escapeHtml(inst.name)}`;
+                        iLi.appendChild(label);
+                        instUl.appendChild(iLi);
+                    });
+
+                    rLi.appendChild(instUl);
+                    regUl.appendChild(rLi);
+                });
+
+                gLi.appendChild(regUl);
+                ul.appendChild(gLi);
+            });
+
+            body.appendChild(ul);
+
+            // expand to show selected items: find closest register/group ancestors and open their headers
+            if (selected.size > 0) {
+                const boxes = body.querySelectorAll('input[type="checkbox"][data-inst-id]');
+                boxes.forEach(cb => {
+                    if (cb.checked) {
+                        const registerLi = cb.closest('li.register');
+                        if (registerLi) {
+                            const rHeader = registerLi.querySelector('.register-header');
+                            if (rHeader) rHeader.classList.remove('collapsed');
+                        }
+                        const groupLi = cb.closest('li.group');
+                        if (groupLi) {
+                            const gHeader = groupLi.querySelector('.group-header');
+                            if (gHeader) gHeader.classList.remove('collapsed');
+                        }
+                    }
+                });
+            }
+
+            modal.classList.remove('hidden');
+        }
+
+        // basic modal styles
+        const style = document.createElement('style');
+        style.textContent = `
+            .instrument-modal { position:fixed; left:0; top:0; right:0; bottom:0; z-index:9999; }
+            .instrument-modal.hidden { display:none; }
+            .instrument-modal-backdrop { position:absolute; left:0; top:0; right:0; bottom:0; background:rgba(0,0,0,0.4); }
+            .instrument-modal-dialog { position:relative; width:600px; max-width:95%; margin:5% auto; background:#fff; border-radius:6px; overflow:hidden; box-shadow:0 6px 18px rgba(0,0,0,0.2); }
+            .instrument-modal-body { max-height:50vh; overflow:auto; padding:1rem; }
+            .instrument-modal-header { display:flex; align-items:center; justify-content:space-between; padding:0.5rem 1rem; border-bottom:1px solid #eee; }
+            .instrument-modal-footer { display:flex; justify-content:flex-end; gap:0.5rem; padding:0.5rem 1rem; border-top:1px solid #eee; }
+            .instrument-modal-footer .btn-close, .instrument-modal-footer .btn-save { margin-left:0.25rem; padding:0.35rem 0.6rem; border:1px solid #ccc; background:#f5f5f5; border-radius:4px; cursor:pointer; }
+            .instrument-modal-footer .btn-save { background:#007bff; color:#fff; border-color:#006ae6; }
+            .instrument-tree, .instrument-tree ul { list-style:none; margin:0; padding-left:0.5rem; }
+            .instrument-tree .group-header, .instrument-tree .register-header { font-weight:600; cursor:pointer; padding:0.25rem 0; }
+            .instrument-tree .group-header.collapsed + ul, .instrument-tree .register-header.collapsed + ul { display:none; }
+            .instrument-tree li { padding:0.1rem 0; }
+        `;
+        document.head.appendChild(style);
+
+        // save button handler removed
+
+        // initial render
+        renderParticipants(currentParticipants.slice());
     })();
 </script>
