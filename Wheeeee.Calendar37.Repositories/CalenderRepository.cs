@@ -961,7 +961,7 @@ order by sp.LastName, sp.FirstName, sp.SessionPersonID;
 select
     c.PersonID,
     c.OrchestraID,
-    c.SeasonID,
+    SeasonID = isnull(c.SeasonID, (select max(ID) from Season s where s.OrchestraID = c.OrchestraID and s.IsCurrent = 1)),
     c.InstrumentIDs,
     c.RoleIDs,
     c.IsAdmin,
@@ -1050,7 +1050,7 @@ where	IsActive = 1
                             r.Get<Guid?>("MembershipUniqueID"),
                             LoadPerson(r.Get<int>("PersonID")),
                             LoadSeason(r.Get<int?>("SeasonID"), orchestra),
-                            r.Get<string>("InstrumentIDs")?.Split('|').Select(s => instruments.Single(i => i.ID == int.Parse(s))).ToArray() ?? [],
+                            r.Get<string>("InstrumentIDs")?.Split('|').Select(s => instruments.SingleOrDefault(i => i.ID.ToString() == s)).NotTheNulls().ToArray() ?? [],
                             r.Get<string>("RoleIDs")?.Split('|').Select(s => roles.Single(ro => ro.ID == int.Parse(s))).ToArray() ?? [],
                             r.Get<bool>("IsAdmin"),
                             r.Get<bool>("HasPlayingMembership"),

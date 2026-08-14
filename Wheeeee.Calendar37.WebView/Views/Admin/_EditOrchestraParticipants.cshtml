@@ -590,6 +590,17 @@
 
         // save button handler removed
 
+        // Expose participant data to parent form for saving
+        window.getEditableParticipants = function() {
+            return (currentParticipants || []).map(p => ({
+                Index: p.Index,
+                FirstName: p.FirstName || '',
+                LastName: p.LastName || '',
+                Roles: (p.Roles || []).map(r => Number(r)),
+                Instruments: (p.Instruments || []).map(i => Number(i))
+            }));
+        };
+
         // initial render
         renderParticipants(currentParticipants.slice());
     })();

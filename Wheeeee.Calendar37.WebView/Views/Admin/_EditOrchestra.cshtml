@@ -77,7 +77,21 @@
     function saveOrchestra(orchestraId) {
         const form = document.getElementById('editForm');
         const data = new FormData(form);
-        fetch('/Admin/Save?orchestraId=' + encodeURIComponent(orchestraId), {
+        const seasonSelect = document.getElementById('seasonSelect');
+        const seasonId = seasonSelect ? seasonSelect.value : '';
+
+        // Collect participants from the JS state in _EditOrchestraParticipants
+        const participantData = window.getEditableParticipants ? window.getEditableParticipants() : [];
+        if (participantData.length > 0) {
+            data.append('Participants', JSON.stringify(participantData));
+        }
+
+        const query = new URLSearchParams({
+            orchestraId: orchestraId,
+            ...(seasonId ? { seasonId } : {})
+        });
+
+        fetch('/Admin/Save?' + query.toString(), {
             method: 'POST',
             body: data
         }).then(r => {

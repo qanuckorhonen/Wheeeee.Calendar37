@@ -96,7 +96,7 @@ namespace Wheeeee.Calendar37.WebView.Controllers
         // SaveParticipants removed - editing is client-side only
 
         [HttpPost]
-        public IActionResult Save(string orchestraId)
+        public IActionResult Save(string orchestraId, string seasonId)
         {
             if (!HomeController.GetIsAdmin(Request))
             {
@@ -116,7 +116,36 @@ namespace Wheeeee.Calendar37.WebView.Controllers
                 if (dc != null) seasons.Add(dc);
             }
 
+            // Read and parse participants from form if present
+            var participantsJson = form["Participants"].FirstOrDefault();
+            var participants = new List<IDataCollection>();
+
+            if (!string.IsNullOrEmpty(participantsJson))
+            {
+                try
+                {
+                    var participantList = Newtonsoft.Json.JsonConvert.DeserializeObject<dynamic[]>(participantsJson);
+                    if (participantList != null)
+                    {
+                        int pIdx = 0;
+                        foreach (var p in participantList)
+                        {
+                            var pc = CreateParticipantData(p, pIdx++);
+                            if (pc != null) participants.Add(pc);
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    // Log parsing error but continue
+                    System.Diagnostics.Debug.WriteLine($"Error parsing participants: {ex.Message}");
+                }
+            }
+
             repo.SaveEditableOrchestra(orchestraGuid, seasons);
+
+            // TODO: If repository supports saving participants, add that call here
+            // For now, participants are parsed and available if needed
 
             return NoContent();
         }
@@ -147,6 +176,42 @@ namespace Wheeeee.Calendar37.WebView.Controllers
             dc.Add("IsActive", (isActiveStr ?? string.Empty).ToLower() == "true");
 
             return dc;
+        }
+
+        private IDataCollection CreateParticipantData(dynamic participant, int index)
+        {
+            try
+            {
+                var firstName = participant.FirstName as string ?? "";
+                var lastName = participant.LastName as string ?? "";
+
+                // Skip empty participants
+                if (string.IsNullOrWhiteSpace(firstName) && string.IsNullOrWhiteSpace(lastName))
+                {
+                    return null;
+                }
+
+                var dc = DataCollection.Empty();
+                dc.Add("Index", index);
+                dc.Add("FirstName", firstName);
+                dc.Add("LastName", lastName);
+
+                // Parse roles array
+                var rolesArray = participant.Roles as Newtonsoft.Json.Linq.JArray;
+                var roles = rolesArray != null ? rolesArray.ToObject<int[]>() : Array.Empty<int>();
+                dc.Add("Roles", roles);
+
+                // Parse instruments array
+                var instrumentsArray = participant.Instruments as Newtonsoft.Json.Linq.JArray;
+                var instruments = instrumentsArray != null ? instrumentsArray.ToObject<int[]>() : Array.Empty<int>();
+                dc.Add("Instruments", instruments);
+
+                return dc;
+            }
+            catch
+            {
+                return null;
+            }
         }
     }
 }
